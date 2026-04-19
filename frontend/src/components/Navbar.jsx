@@ -380,7 +380,24 @@ const Navbar = () => {
             </button>
 
             {/* Login/Logout */}
-            {!user && (
+            {user ? (
+              <>
+                <hr className="my-2 border-card-border" />
+                <div className="px-3 py-2 mb-1">
+                  <p className="text-sm font-semibold text-dark-navy m-0">{user.name}</p>
+                  <p className="text-xs text-muted-text m-0">{user.email}</p>
+                </div>
+                <Link to="/profile" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-dark-navy hover:bg-gray-50 transition-colors">
+                  <User size={18} /> My Profile
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  ↪ Logout
+                </button>
+              </>
+            ) : (
               <div className="flex gap-2 pt-2">
                 <Link to="/login" className="flex-1 text-center bg-gray-100 text-dark-navy text-sm font-medium py-2.5 rounded-xl hover:bg-gray-200 transition-colors">
                   Sign In

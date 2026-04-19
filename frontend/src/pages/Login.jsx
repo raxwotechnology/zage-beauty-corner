@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -11,8 +11,17 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const login = useAuthStore((state) => state.login);
+  const { login, user, isAuthenticated, logout } = useAuthStore();
   const navigate = useNavigate();
+
+  // If already logged in, show option or redirect
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      const redirectMap = { admin: '/admin', manager: '/manager', cashier: '/employee', deliveryGuy: '/employee', stockEmployee: '/employee' };
+      navigate(redirectMap[user.role] || '/', { replace: true });
+    }
+  }, []);
+
 
   const submitHandler = async (e) => {
     e.preventDefault();
