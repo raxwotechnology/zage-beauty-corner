@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { Bell, Check, CheckCheck } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import useNotificationStore from '../store/notificationStore';
 
 const NotificationBell = () => {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const { notifications, unreadCount, fetchNotifications, markAsRead, markAllRead } = useNotificationStore();
@@ -97,7 +98,10 @@ const NotificationBell = () => {
                   onClick={() => {
                     if (!n.isRead) markAsRead(n._id);
                     if (n.link) {
-                      window.location.href = n.link;
+                      navigate(n.link);
+                      setOpen(false);
+                    } else {
+                      navigate('/profile');
                       setOpen(false);
                     }
                   }}

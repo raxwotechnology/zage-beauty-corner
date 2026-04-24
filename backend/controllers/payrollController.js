@@ -23,17 +23,26 @@ const calculateSalary = async (req, res, next) => {
     const employee = await User.findById(employeeId);
     if (!employee) { res.status(404); return next(new Error('Employee not found')); }
 
+    const OvertimePay = require('../models/OvertimePay');
+    const pendingOTs = await OvertimePay.find({ employeeId, status: 'pending' });
+    const totalOTAmount = pendingOTs.reduce((sum, ot) => sum + ot.totalAmount, 0);
+
+    const EmployeeTarget = require('../models/EmployeeTarget');
+    const pendingTargets = await EmployeeTarget.find({ employeeId, status: 'completed', bonusPaid: false });
+    const totalTargetBonus = pendingTargets.reduce((sum, t) => sum + (t.bonusAmount || 0), 0);
+
     const basicSalary = employee.employeeInfo?.salary || 0;
     if (!basicSalary) {
       res.status(400);
       return next(new Error('Employee salary not set'));
     }
 
-    const grossSalary = basicSalary + allowances + bonuses;
+    const actualBonuses = Number(bonuses) + totalOTAmount + totalTargetBonus;
+    const grossSalary = basicSalary + Number(allowances) + actualBonuses;
     const epfEmployee = parseFloat((basicSalary * EPF_EMPLOYEE_RATE).toFixed(2));
     const epfEmployer = parseFloat((basicSalary * EPF_EMPLOYER_RATE).toFixed(2));
     const etfEmployer = parseFloat((basicSalary * ETF_RATE).toFixed(2));
-    const totalDeductions = epfEmployee + deductions;
+    const totalDeductions = epfEmployee + Number(deductions);
     const netSalary = parseFloat((grossSalary - totalDeductions).toFixed(2));
 
     res.json({
@@ -42,13 +51,15 @@ const calculateSalary = async (req, res, next) => {
       month,
       year,
       basicSalary,
-      allowances,
-      bonuses,
+      allowances: Number(allowances),
+      bonuses: actualBonuses,
+      otIncluded: totalOTAmount,
+      targetBonusIncluded: totalTargetBonus,
       grossSalary,
       epfEmployee,
       epfEmployer,
       etfEmployer,
-      otherDeductions: deductions,
+      otherDeductions: Number(deductions),
       totalDeductions,
       netSalary,
     });
@@ -72,12 +83,21 @@ const processSalaryPayment = async (req, res, next) => {
     const employee = await User.findById(employeeId);
     if (!employee) { res.status(404); return next(new Error('Employee not found')); }
 
+    const OvertimePay = require('../models/OvertimePay');
+    const pendingOTs = await OvertimePay.find({ employeeId, status: 'pending' });
+    const totalOTAmount = pendingOTs.reduce((sum, ot) => sum + ot.totalAmount, 0);
+
+    const EmployeeTarget = require('../models/EmployeeTarget');
+    const pendingTargets = await EmployeeTarget.find({ employeeId, status: 'completed', bonusPaid: false });
+    const totalTargetBonus = pendingTargets.reduce((sum, t) => sum + (t.bonusAmount || 0), 0);
+
     const basicSalary = employee.employeeInfo?.salary || 0;
-    const grossSalary = basicSalary + allowances + bonuses;
+    const actualBonuses = Number(bonuses) + totalOTAmount + totalTargetBonus;
+    const grossSalary = basicSalary + Number(allowances) + actualBonuses;
     const epfEmployee = parseFloat((basicSalary * EPF_EMPLOYEE_RATE).toFixed(2));
     const epfEmployer = parseFloat((basicSalary * EPF_EMPLOYER_RATE).toFixed(2));
     const etfEmployer = parseFloat((basicSalary * ETF_RATE).toFixed(2));
-    const totalDeductions = epfEmployee + deductions;
+    const totalDeductions = epfEmployee + Number(deductions);
     const netSalary = parseFloat((grossSalary - totalDeductions).toFixed(2));
 
     const payroll = await Payroll.create({
@@ -86,19 +106,30 @@ const processSalaryPayment = async (req, res, next) => {
       month,
       year,
       basicSalary,
-      allowances,
-      bonuses,
+      allowances: Number(allowances),
+      bonuses: actualBonuses,
       grossSalary,
       epfEmployee,
       epfEmployer,
       etfEmployer,
-      otherDeductions: deductions,
+      otherDeductions: Number(deductions),
       totalDeductions,
       netSalary,
       status: 'paid',
       paidAt: new Date(),
       processedBy: req.user._id,
     });
+
+    for (const ot of pendingOTs) {
+      ot.status = 'paid';
+      ot.paidAt = new Date();
+      await ot.save();
+    }
+
+    for (const t of pendingTargets) {
+      t.bonusPaid = true;
+      await t.save();
+    }
 
     // Send notification & email
     const emailContent = salaryPaidEmail(employee.name, payroll);
@@ -107,8 +138,8 @@ const processSalaryPayment = async (req, res, next) => {
       userEmail: employee.email,
       type: 'salary_credit',
       title: '💰 Salary Credited',
-      message: `Your salary of Rs.${netSalary.toLocaleString()} for ${month}/${year} has been processed.`,
-      link: '/profile',
+      message: `Your salary of Rs.${netSalary.toLocaleString()} for ${month}/${year} has been processed${totalOTAmount > 0 ? ` (Includes OT: Rs.${totalOTAmount.toLocaleString()})` : ''}.`,
+      link: '/employee/salary',
       emailContent,
     });
 

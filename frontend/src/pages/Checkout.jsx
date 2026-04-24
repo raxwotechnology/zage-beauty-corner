@@ -34,7 +34,8 @@ const Checkout = () => {
   const subtotal = getSubtotal();
   const deliveryFee = subtotal > 50 ? 0 : 4.99;
   const tax = Math.round(subtotal * 0.08 * 100) / 100;
-  const total = Math.max(0, subtotal - voucherDiscount) + deliveryFee + tax;
+  const fullTotalBeforeDiscount = subtotal + deliveryFee + tax;
+  const total = Math.max(0, fullTotalBeforeDiscount - voucherDiscount);
 
   // Pre-fill address from user profile
   useEffect(() => {
@@ -55,13 +56,60 @@ const Checkout = () => {
       if (!user) return;
       try {
         const { data } = await getMyLoyaltyPoints();
-        setClaimedVouchers(data?.availableVouchers || []);
+        const available = data?.availableVouchers || [];
+        
+        // Filter vouchers that are valid for the current cart
+        const validVouchers = available.filter(v => {
+          // Check min order amount
+          if (v.minOrderAmount && subtotal < v.minOrderAmount) return false;
+          
+          // Check products / categories
+          const hasProductRestriction = v.applicableProductIds?.length > 0;
+          const hasCategoryRestriction = v.applicableCategoryIds?.length > 0;
+          
+          if (hasProductRestriction || hasCategoryRestriction) {
+            const itemProductIds = items.map(i => i.productId?._id || i.productId);
+            const itemCategoryIds = items.map(i => i.productId?.category?._id || i.productId?.category || i.productId?.categoryId?._id || i.productId?.categoryId);
+            
+            let productMatch = false;
+            let categoryMatch = false;
+            
+            if (hasProductRestriction) {
+              productMatch = itemProductIds.some(id => v.applicableProductIds.includes(String(id)));
+            }
+            if (hasCategoryRestriction) {
+              categoryMatch = itemCategoryIds.some(id => v.applicableCategoryIds.includes(String(id)));
+            }
+            
+            if (hasProductRestriction && hasCategoryRestriction) {
+              if (!productMatch && !categoryMatch) return false;
+            } else if (hasProductRestriction && !productMatch) {
+              return false;
+            } else if (hasCategoryRestriction && !categoryMatch) {
+              return false;
+            }
+          }
+          
+          return true;
+        });
+
+        setClaimedVouchers(validVouchers);
+        
+        // Check if currently selected voucher is still valid
+        if (selectedVoucherCode) {
+          const stillValid = validVouchers.some(v => v.code === selectedVoucherCode);
+          if (!stillValid) {
+            setSelectedVoucherCode('');
+            setVoucherDiscount(0);
+            toast.warning('Your applied voucher is no longer valid for the current cart items and was removed.');
+          }
+        }
       } catch {
         setClaimedVouchers([]);
       }
     };
     loadClaimedVouchers();
-  }, [user]);
+  }, [user, subtotal, items]);
 
   // Generate delivery date options (next 7 days)
   const dateOptions = [];
@@ -131,16 +179,17 @@ const Checkout = () => {
     }
   };
 
-  const handleApplyVoucher = async () => {
-    if (!selectedVoucherCode) {
-      toast.error('Select a voucher first');
+  const handleApplyVoucher = async (codeToApply) => {
+    const code = codeToApply || selectedVoucherCode;
+    if (!code) {
+      setVoucherDiscount(0);
       return;
     }
     try {
       setApplyingVoucher(true);
       const applyPayload = {
-        code: selectedVoucherCode,
-        orderAmount: subtotal,
+        code,
+        orderAmount: fullTotalBeforeDiscount,
         items: items.map((item) => ({
           productId: item.productId?._id || item.productId,
           quantity: item.quantity,
@@ -151,6 +200,7 @@ const Checkout = () => {
       toast.success(`Voucher applied: Rs. ${Number(data?.discount || 0).toFixed(2)} off`);
     } catch (err) {
       setVoucherDiscount(0);
+      setSelectedVoucherCode('');
       toast.error(err.response?.data?.message || 'Failed to apply voucher');
     } finally {
       setApplyingVoucher(false);
@@ -191,14 +241,16 @@ const Checkout = () => {
   };
 
   const initiatePayHere = (payData, order) => {
+    const FRONTEND = 'https://beauty.zage.lk';
+    const BACKEND = 'https://beautycorner.zage.lk';
     const payment = {
       sandbox: payData.sandbox,
       merchant_id: payData.merchant_id,
-      return_url: window.location.origin + `/order-confirmation/${order._id}`,
-      cancel_url: window.location.origin + '/checkout',
-      notify_url: `${import.meta.env.VITE_API_URL}/api/orders/payhere-notify`,
+      return_url: `${FRONTEND}/order-confirmation/${order._id}`,
+      cancel_url: `${FRONTEND}/checkout`,
+      notify_url: `${BACKEND}/api/orders/payhere-notify`,
       order_id: payData.order_id,
-      items: order.items.map((i) => i.name).join(', '),
+      items: Array.isArray(order.items) ? order.items.map((i) => i.name).join(', ') : 'Order',
       amount: payData.amount,
       currency: payData.currency,
       hash: payData.hash,
@@ -208,7 +260,7 @@ const Checkout = () => {
       phone: user.phone || '0000000000',
       address: address.street,
       city: address.city,
-      country: address.country,
+      country: 'Sri Lanka',
     };
 
     if (window.payhere) {
@@ -334,30 +386,38 @@ const Checkout = () => {
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.2 }}
           >
             <h3 className="font-bold text-dark-navy mt-0 mb-4">Voucher</h3>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <select
-                value={selectedVoucherCode}
-                onChange={(e) => { setSelectedVoucherCode(e.target.value); setVoucherDiscount(0); }}
-                className="flex-1 border border-card-border rounded-xl px-4 py-3 text-sm bg-white"
-              >
-                <option value="">Select claimed voucher</option>
-                {claimedVouchers.map((v, idx) => (
-                  <option key={`${v.code}-${idx}`} value={v.code}>
-                    {v.code} ({v.type === 'percentage' ? `${v.value}%` : `Rs. ${v.value}`})
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={handleApplyVoucher}
-                disabled={applyingVoucher || !selectedVoucherCode}
-                className="bg-violet-600 text-white font-semibold px-5 py-3 rounded-xl hover:bg-violet-700 disabled:opacity-60"
-              >
-                {applyingVoucher ? 'Applying...' : 'Apply'}
-              </button>
-            </div>
+            {claimedVouchers.length === 0 ? (
+              <p className="text-sm text-amber-600 mb-0">No valid vouchers available for current cart items.</p>
+            ) : (
+              <div className="flex flex-col sm:flex-row gap-3">
+                <select
+                  value={selectedVoucherCode}
+                  onChange={(e) => {
+                    const code = e.target.value;
+                    setSelectedVoucherCode(code);
+                    if (code) {
+                      handleApplyVoucher(code);
+                    } else {
+                      setVoucherDiscount(0);
+                    }
+                  }}
+                  className="w-full border border-card-border rounded-xl px-4 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-green"
+                >
+                  <option value="">Select claimed voucher</option>
+                  {claimedVouchers.map((v, idx) => (
+                    <option key={`${v.code}-${idx}`} value={v.code}>
+                      {v.code} ({v.type === 'percentage' ? `${v.value}%` : `Rs. ${v.value}`})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {voucherDiscount > 0 && (
-              <p className="text-sm text-emerald-700 mt-3 mb-0">Voucher discount applied: Rs. {voucherDiscount.toFixed(2)}</p>
+              <div className="mt-3 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                <p className="text-sm text-emerald-700 font-semibold mb-0 flex items-center gap-2">
+                  <ShieldCheck size={16} /> Voucher discount applied: -Rs. {voucherDiscount.toFixed(2)} deducted from total
+                </p>
+              </div>
             )}
           </motion.div>
 

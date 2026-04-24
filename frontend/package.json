@@ -14,6 +14,8 @@
     "framer-motion": "^12.38.0",
     "html5-qrcode": "^2.3.8",
     "jsbarcode": "^3.12.3",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -22,6 +24,7 @@
     "react-toastify": "^11.0.5",
     "recharts": "^3.8.1",
     "swiper": "^12.1.3",
+    "xlsx": "^0.18.5",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

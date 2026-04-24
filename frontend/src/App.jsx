@@ -50,6 +50,9 @@ import AdminSupplierPayments from './pages/admin/AdminSupplierPayments';
 import AdminSalesTracking from './pages/admin/AdminSalesTracking';
 import AdminPredictions from './pages/admin/AdminPredictions';
 import AdminOvertime from './pages/admin/AdminOvertime';
+import AdminAttendance from './pages/admin/AdminAttendance';
+import AdminLeaves from './pages/admin/AdminLeaves';
+import AdminTargets from './pages/admin/AdminTargets';
 import BarcodeGenerator from './pages/barcode/BarcodeGenerator';
 import CashierLogin from './pages/cashier/CashierLogin';
 import POSScreen from './pages/cashier/POSScreen';
@@ -124,6 +127,8 @@ function App() {
           <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminOverview /></ProtectedRoute>} />
           <Route path="/admin/users" element={<ProtectedRoute roles={['admin']}><AdminUsers /></ProtectedRoute>} />
           <Route path="/admin/employees" element={<ProtectedRoute roles={['admin']}><AdminEmployees /></ProtectedRoute>} />
+          <Route path="/admin/attendance" element={<ProtectedRoute roles={['admin']}><AdminAttendance /></ProtectedRoute>} />
+          <Route path="/admin/leaves" element={<ProtectedRoute roles={['admin']}><AdminLeaves /></ProtectedRoute>} />
           <Route path="/admin/stores" element={<ProtectedRoute roles={['admin']}><AdminStores /></ProtectedRoute>} />
           <Route path="/admin/categories" element={<ProtectedRoute roles={['admin']}><AdminCategories /></ProtectedRoute>} />
           <Route path="/admin/products" element={<ProtectedRoute roles={['admin']}><AdminProducts /></ProtectedRoute>} />
@@ -142,6 +147,7 @@ function App() {
           <Route path="/admin/sales-tracking" element={<ProtectedRoute roles={['admin']}><AdminSalesTracking /></ProtectedRoute>} />
           <Route path="/admin/predictions" element={<ProtectedRoute roles={['admin']}><AdminPredictions /></ProtectedRoute>} />
           <Route path="/admin/overtime" element={<ProtectedRoute roles={['admin']}><AdminOvertime /></ProtectedRoute>} />
+          <Route path="/admin/targets" element={<ProtectedRoute roles={['admin']}><AdminTargets /></ProtectedRoute>} />
 
           {/* Barcode Generator (Admin + Manager + Cashier) */}
           <Route path="/barcode-generator" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><BarcodeGenerator /></ProtectedRoute>} />

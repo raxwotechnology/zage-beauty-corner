@@ -8,6 +8,7 @@ const {
   deleteOvertimeRecord,
   getEmployeeOTReport,
   getMyOvertime,
+  rejectOvertimeRecord,
 } = require('../controllers/overtimeController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -20,6 +21,7 @@ router.post('/', protect, authorize('admin'), createOvertimeRecord);
 router.get('/summary', protect, authorize('admin'), getOvertimeSummary);
 router.get('/employee/:employeeId', protect, authorize('admin'), getEmployeeOTReport);
 router.put('/:id/pay', protect, authorize('admin'), markOvertimePaid);
+router.put('/:id/reject', protect, authorize('admin'), rejectOvertimeRecord);
 router.delete('/:id', protect, authorize('admin'), deleteOvertimeRecord);
 
 module.exports = router;

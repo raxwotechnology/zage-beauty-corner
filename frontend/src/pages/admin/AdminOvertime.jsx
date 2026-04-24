@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Clock, Plus, DollarSign, User, CheckCircle, Trash2, X, Download, Search, ChevronRight, ArrowLeft } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import adminNavItems from './adminNavItems';
-import { getOvertimeSummary, getOvertimeRecords, createOvertimeRecord, markOvertimePaid, deleteOvertimeRecord, getEmployeeOTReport } from '../../services/api';
+import { getOvertimeSummary, getOvertimeRecords, createOvertimeRecord, markOvertimePaid, rejectOvertimeRecord, deleteOvertimeRecord, getEmployeeOTReport } from '../../services/api';
 import API from '../../services/api';
 import { toast } from 'react-toastify';
 
@@ -73,6 +73,16 @@ const AdminOvertime = () => {
       fetchData();
       if (selectedEmployee) viewEmployeeReport(selectedEmployee);
     } catch (err) { toast.error('Failed to mark as paid'); }
+  };
+
+  const handleReject = async (id) => {
+    if (!window.confirm('Reject this OT request?')) return;
+    try {
+      await rejectOvertimeRecord(id);
+      toast.success('OT request rejected');
+      fetchData();
+      if (selectedEmployee) viewEmployeeReport(selectedEmployee);
+    } catch (err) { toast.error('Failed to reject OT'); }
   };
 
   const handleDelete = async (id) => {
@@ -255,14 +265,17 @@ const AdminOvertime = () => {
                       <td className="py-2.5 px-3 text-right">Rs. {r.ratePerHour}</td>
                       <td className="py-2.5 px-3 text-right font-bold">Rs. {r.totalAmount.toLocaleString()}</td>
                       <td className="py-2.5 px-3 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${r.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${r.status === 'paid' ? 'bg-green-100 text-green-700' : r.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                           {r.status}
                         </span>
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <div className="flex justify-end gap-1">
                           {r.status === 'pending' && (
-                            <button onClick={() => handlePay(r._id)} className="px-2 py-1 rounded-lg bg-green-50 text-green-600 text-xs font-semibold hover:bg-green-100">Pay</button>
+                            <>
+                              <button onClick={() => handlePay(r._id)} className="px-2 py-1 rounded-lg bg-green-50 text-green-600 text-xs font-semibold hover:bg-green-100">Pay</button>
+                              <button onClick={() => handleReject(r._id)} className="px-2 py-1 rounded-lg bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100">Reject</button>
+                            </>
                           )}
                           <button onClick={() => handleDelete(r._id)} className="p-1 rounded-lg hover:bg-red-50 text-red-400"><Trash2 size={14} /></button>
                         </div>
@@ -360,7 +373,7 @@ const AdminOvertime = () => {
                         <td className="py-3 px-4 text-right">Rs. {r.ratePerHour}</td>
                         <td className="py-3 px-4 text-right font-bold">Rs. {r.totalAmount.toLocaleString()}</td>
                         <td className="py-3 px-4 text-center">
-                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${r.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${r.status === 'paid' ? 'bg-green-100 text-green-700' : r.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                             {r.status}
                           </span>
                         </td>
@@ -368,7 +381,10 @@ const AdminOvertime = () => {
                         <td className="py-3 px-4 text-right">
                           <div className="flex justify-end gap-1">
                             {r.status === 'pending' && (
-                              <button onClick={() => handlePay(r._id)} className="px-2.5 py-1 rounded-lg bg-green-50 text-green-600 text-xs font-semibold hover:bg-green-100">Pay</button>
+                              <>
+                                <button onClick={() => handlePay(r._id)} className="px-2.5 py-1 rounded-lg bg-green-50 text-green-600 text-xs font-semibold hover:bg-green-100">Pay</button>
+                                <button onClick={() => handleReject(r._id)} className="px-2.5 py-1 rounded-lg bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100">Reject</button>
+                              </>
                             )}
                             <button onClick={() => handleDelete(r._id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400"><Trash2 size={14} /></button>
                           </div>

@@ -107,6 +107,7 @@ export const getOrderById = (id) => API.get(`/orders/${id}`);
 export const getStoreOrders = () => API.get('/orders/store');
 export const updateOrderStatus = (id, data) => API.put(`/orders/${id}/status`, data);
 export const getPayHereHash = (orderId) => API.post(`/orders/${orderId}/payhere-hash`);
+export const getPosPayHereHash = (data) => API.post('/orders/pos/payhere-hash', data);
 export const requestOrderPaymentOtp = (orderId) => API.post(`/orders/${orderId}/payment-otp/request`);
 export const verifyOrderPaymentOtp = (orderId, data) => API.post(`/orders/${orderId}/payment-otp/verify`, data);
 export const cancelMyOrder = (orderId, data) => API.put(`/orders/${orderId}/cancel`, data);
@@ -190,6 +191,7 @@ export const getTargets = (params) => API.get('/hr/targets', { params });
 export const getMyTargets = () => API.get('/hr/targets/me');
 export const updateTargetProgress = (id, data) => API.put(`/hr/targets/${id}/progress`, data);
 export const payTargetBonus = (id) => API.put(`/hr/targets/${id}/pay-bonus`);
+export const deleteTarget = (id) => API.delete(`/hr/targets/${id}`);
 export const getEmployeePerformance = (employeeId) => API.get(`/hr/performance/${employeeId}`);
 
 // Payroll (Phase 5)
@@ -247,6 +249,7 @@ export const getBarcodeLogs = (params) => API.get('/barcodes/logs', { params });
 
 // Supplier Payments
 export const getSupplierPaymentSummary = (params) => API.get('/supplier-payments/summary', { params });
+export const getSupplierPayments = (params) => API.get('/supplier-payments/payments', { params });
 export const getSupplierLedger = (supplierId, params) => API.get(`/supplier-payments/${supplierId}/ledger`, { params });
 export const recordSupplierPayment = (supplierId, data) => API.post(`/supplier-payments/${supplierId}/pay`, data);
 export const recordSupplierPurchase = (supplierId, data) => API.post(`/supplier-payments/${supplierId}/purchase`, data);
@@ -269,6 +272,7 @@ export const getOvertimeRecords = (params) => API.get('/overtime', { params });
 export const getOvertimeSummary = (params) => API.get('/overtime/summary', { params });
 export const createOvertimeRecord = (data) => API.post('/overtime', data);
 export const markOvertimePaid = (id) => API.put(`/overtime/${id}/pay`);
+export const rejectOvertimeRecord = (id) => API.put(`/overtime/${id}/reject`);
 export const deleteOvertimeRecord = (id) => API.delete(`/overtime/${id}`);
 export const getEmployeeOTReport = (employeeId, params) => API.get(`/overtime/employee/${employeeId}`, { params });
 export const getMyOvertime = (params) => API.get('/overtime/my', { params });

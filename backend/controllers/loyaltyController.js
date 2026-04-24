@@ -31,11 +31,29 @@ const normalizeUserVouchers = (vouchers = []) => {
 // @access  Private
 const getMyPoints = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user._id).select('loyaltyPoints vouchers');
-    const availableVouchers = normalizeUserVouchers(user.vouchers || []);
+    const user = await User.findById(req.user._id)
+      .select('loyaltyPoints vouchers')
+      .populate({
+        path: 'vouchers.voucherId',
+        select: 'applicableProductIds applicableCategoryIds'
+      });
+      
+    // Merge populated data back into vouchers
+    const mergedVouchers = (user.vouchers || []).map(v => {
+      const vObj = v.toObject ? v.toObject() : v;
+      if (vObj.voucherId) {
+        vObj.applicableProductIds = vObj.voucherId.applicableProductIds;
+        vObj.applicableCategoryIds = vObj.voucherId.applicableCategoryIds;
+        // Re-assign voucherId to just the ID string to avoid breaking other things
+        vObj.voucherId = vObj.voucherId._id;
+      }
+      return vObj;
+    });
+
+    const availableVouchers = normalizeUserVouchers(mergedVouchers);
     res.json({
       points: user.loyaltyPoints || 0,
-      vouchers: user.vouchers || [],
+      vouchers: mergedVouchers,
       availableVouchers,
     });
   } catch (error) { next(error); }
@@ -234,14 +252,19 @@ const claimVoucher = async (req, res, next) => {
 // @access  Private
 const getAvailableVouchers = async (req, res, next) => {
   try {
+    const user = await User.findById(req.user._id).select('vouchers').lean();
+    const claimedCodes = new Set((user?.vouchers || []).map(v => v.code));
+
     const vouchers = await Voucher.find({
       isActive: true,
-      expiresAt: { $gt: new Date() },
-      $expr: { $lt: ['$usedCount', '$maxUses'] },
-    }).select('code type value minOrderAmount maxDiscountAmount description expiresAt perUserMaxUses applicableProductIds applicableCategoryIds');
+      $or: [{ expiresAt: { $gt: new Date() } }, { expiresAt: null }, { expiresAt: { $exists: false } }],
+    }).select('code type value minOrderAmount maxDiscountAmount description expiresAt perUserMaxUses maxUses usedCount applicableProductIds applicableCategoryIds').lean();
+    
     // Deduplicate by code so UI does not show duplicate options.
     const deduped = new Map();
     for (const voucher of vouchers) {
+      if (claimedCodes.has(voucher.code)) continue;
+      if ((voucher.usedCount || 0) >= (voucher.maxUses || 9999)) continue;
       if (!deduped.has(voucher.code)) deduped.set(voucher.code, voucher);
     }
     res.json([...deduped.values()]);
@@ -337,11 +360,43 @@ const awardOrderPoints = async (userId, orderTotal, currency = 'LKR') => {
   } catch (error) { console.error('Failed to award loyalty points:', error.message); return 0; }
 };
 
+/**
+ * Helper: Mark a voucher as used after successful payment
+ */
+const markVoucherAsUsed = async (userId, code) => {
+  try {
+    const voucher = await Voucher.findOne({ code: String(code).toUpperCase() });
+    if (!voucher) return false;
+
+    voucher.usedCount = Number(voucher.usedCount || 0) + 1;
+    if (!Array.isArray(voucher.usedBy)) voucher.usedBy = [];
+    voucher.usedBy.push({ userId, usedAt: new Date() });
+    await voucher.save();
+
+    const userDoc = await User.findById(userId);
+    if (userDoc) {
+      const voucherIndex = (userDoc.vouchers || []).findIndex(
+        (v) => v.code === voucher.code && v.isUsed !== true
+      );
+      if (voucherIndex >= 0) {
+        userDoc.vouchers[voucherIndex].isUsed = true;
+        userDoc.vouchers[voucherIndex].usedAt = new Date();
+        await userDoc.save();
+        return true;
+      }
+    }
+    return false;
+  } catch (error) {
+    console.error('Failed to mark voucher as used:', error);
+    return false;
+  }
+};
+
 module.exports = {
   getMyPoints, getLoyaltyHistory, redeemPoints, issueBonusPoints,
   applyVoucher, applyPromoCode, getAvailableVouchers,
   getAllVouchers,
   claimVoucher,
   createVoucher, updateVoucher, deleteVoucher,
-  awardOrderPoints,
+  awardOrderPoints, markVoucherAsUsed,
 };

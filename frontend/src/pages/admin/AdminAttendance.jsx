@@ -1,17 +1,17 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Download, FileText, FileSpreadsheet, Filter, Clock, CheckCircle, X } from 'lucide-react';
+import { Download, FileText, FileSpreadsheet, Filter, Store as StoreIcon, Clock, CheckCircle, X } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
-import { getAttendanceReport, getEmployees, adminMarkAttendance } from '../../services/api';
+import { getAttendanceReport, getEmployees, getStores, adminMarkAttendance } from '../../services/api';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { toast } from 'react-toastify';
-import managerNavItems from './managerNavItems';
+import adminNavItems from './adminNavItems';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
 const now = new Date();
 
-const ManagerAttendance = () => {
+const AdminAttendance = () => {
   const [records, setRecords] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,21 +19,27 @@ const ManagerAttendance = () => {
   const [year, setYear] = useState(now.getFullYear());
   const [selectedRole, setSelectedRole] = useState('All');
   const [selectedDepartment, setSelectedDepartment] = useState('All');
+  const [stores, setStores] = useState([]);
+  const [selectedStore, setSelectedStore] = useState('All');
   
   const [showAttModal, setShowAttModal] = useState(false);
   const [attForm, setAttForm] = useState({ employeeId: '', date: new Date().toISOString().split('T')[0], checkInTime: '09:00', checkOutTime: '17:00', status: 'present', notes: '' });
 
-  useEffect(() => { fetchData(); }, [month, year]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [attRes, empRes] = await Promise.all([
-        getAttendanceReport({ month, year }),
+      const params = { month, year };
+      if (selectedStore !== 'All') params.storeId = selectedStore;
+      
+      const [attRes, empRes, storeRes] = await Promise.all([
+        getAttendanceReport(params),
         getEmployees(),
+        getStores(),
       ]);
       setRecords(attRes.data);
       setEmployees(empRes.data);
+      setStores(storeRes.data || []);
     } catch (err) { toast.error('Failed to load attendance'); }
     finally { setLoading(false); }
   };
@@ -55,6 +61,10 @@ const ManagerAttendance = () => {
       fetchData();
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
   };
+
+  useEffect(() => {
+    fetchData();
+  }, [month, year, selectedStore]);
 
   const departments = useMemo(() => {
     const deps = new Set(employees.map(e => e.employeeInfo?.department).filter(Boolean));
@@ -136,13 +146,13 @@ const ManagerAttendance = () => {
     toast.success('PDF downloaded');
   };
 
-  if (loading) return <DashboardLayout navItems={managerNavItems} title="Manager Dashboard"><div className="flex items-center justify-center h-64"><div className="w-10 h-10 border-4 border-primary-green border-t-transparent rounded-full animate-spin" /></div></DashboardLayout>;
+  if (loading) return <DashboardLayout navItems={adminNavItems} title="Admin Dashboard"><div className="flex items-center justify-center h-64"><div className="w-10 h-10 border-4 border-primary-green border-t-transparent rounded-full animate-spin" /></div></DashboardLayout>;
 
   return (
-    <DashboardLayout navItems={managerNavItems} title="Manager Dashboard">
+    <DashboardLayout navItems={adminNavItems} title="Admin Dashboard">
       <div>
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
-          <div><h1 className="text-2xl font-bold text-dark-navy">📋 Attendance Report</h1><p className="text-muted-text text-sm mt-1">{summaryData.length} employees found for {month}/{year}</p></div>
+          <div><h1 className="text-2xl font-bold text-dark-navy">📋 All Employees Attendance</h1><p className="text-muted-text text-sm mt-1">{summaryData.length} employees found for {month}/{year}</p></div>
           <div className="flex items-center gap-3 flex-wrap">
             <button onClick={() => setShowAttModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors flex items-center gap-2"><Clock size={16} /> Mark Attendance</button>
             <button onClick={exportExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors flex items-center gap-2"><FileSpreadsheet size={16} /> Excel</button>
@@ -169,8 +179,15 @@ const ManagerAttendance = () => {
             </select>
           </div>
           <div>
+            <label className="block text-xs font-semibold text-muted-text uppercase tracking-wider mb-2 text-primary-green">Store</label>
+            <select value={selectedStore} onChange={e => setSelectedStore(e.target.value)} className="w-40 border border-card-border rounded-xl py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-green bg-white shadow-sm font-medium">
+              <option value="All">All Stores</option>
+              {stores.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div>
             <label className="block text-xs font-semibold text-muted-text uppercase tracking-wider mb-2">Role</label>
-            <select value={selectedRole} onChange={e => setSelectedRole(e.target.value)} className="w-40 border border-card-border rounded-xl py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-green">
+            <select value={selectedRole} onChange={e => setSelectedRole(e.target.value)} className="w-40 border border-card-border rounded-xl py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-green bg-white shadow-sm">
               {roles.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
@@ -302,4 +319,4 @@ const ManagerAttendance = () => {
   );
 };
 
-export default ManagerAttendance;
+export default AdminAttendance;

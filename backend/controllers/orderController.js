@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { sendEmail, paymentReceiptEmail, orderConfirmationEmail } = require('../utils/emailService');
 const { sendSms, buildPaymentMessage, buildOtpMessage } = require('../utils/smsService');
 const { isValidSLPhone, formatSLPhone } = require('../utils/validators');
+const { markVoucherAsUsed } = require('./loyaltyController');
 
 const PAYMENT_OTP_EXPIRY_MINUTES = 5;
 const PAYMENT_OTP_VERIFY_WINDOW_MINUTES = 15;
@@ -100,7 +101,8 @@ const createOrder = async (req, res, next) => {
         res.status(400);
         return next(new Error('You have reached your usage limit for this voucher'));
       }
-      const orderAmount = items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0);
+      const subtotal = items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0);
+      const orderAmount = subtotal + Number(deliveryFee || 0) + Number(tax || 0);
       if (voucher.minOrderAmount && orderAmount < voucher.minOrderAmount) {
         res.status(400);
         return next(new Error(`Minimum order amount is Rs.${voucher.minOrderAmount}`));
@@ -200,20 +202,8 @@ const createOrder = async (req, res, next) => {
       });
     }
 
-    if (appliedVoucher) {
-      appliedVoucher.usedCount = Number(appliedVoucher.usedCount || 0) + 1;
-      if (!Array.isArray(appliedVoucher.usedBy)) appliedVoucher.usedBy = [];
-      appliedVoucher.usedBy.push({ userId: req.user._id, usedAt: new Date() });
-      await appliedVoucher.save();
-      const userDoc = await User.findById(req.user._id);
-      const voucherIndex = (userDoc?.vouchers || []).findIndex(
-        (v) => v.code === appliedVoucher.code && v.isUsed !== true
-      );
-      if (voucherIndex >= 0) {
-        userDoc.vouchers[voucherIndex].isUsed = true;
-        userDoc.vouchers[voucherIndex].usedAt = new Date();
-        await userDoc.save();
-      }
+    if (appliedVoucher && paymentMethod !== 'payhere') {
+      await markVoucherAsUsed(req.user._id, appliedVoucher.code);
     }
 
     // Update product stock
@@ -544,6 +534,10 @@ const payHereNotify = async (req, res, next) => {
     if (status_code === '2') {
       order.paymentStatus = 'completed';
       order.orderStatus = 'confirmed';
+      
+      if (order.voucherCode) {
+        await markVoucherAsUsed(order.userId, order.voucherCode);
+      }
 
       // Send payment receipt email only when user opted in.
       try {
@@ -585,6 +579,86 @@ const payHereNotify = async (req, res, next) => {
     console.error('PayHere IPN Error:', error);
     res.status(500).send('Server Error');
   }
+};
+
+// @desc    KoKo Pay payment notification handler
+// @route   POST /api/orders/koko-notify
+// @access  Public (called by KoKo)
+const kokoNotify = async (req, res) => {
+  try {
+    const { order_id, status, payment_id, amount } = req.body;
+    if (!order_id) return res.status(400).send('Missing order_id');
+
+    const order = await Order.findById(order_id);
+    if (!order) return res.status(404).send('Order not found');
+
+    if (status === 'SUCCESS' || status === 'COMPLETED' || status === 'APPROVED') {
+      order.paymentStatus = 'completed';
+      order.orderStatus = 'confirmed';
+      order.paymentMethod = 'koko';
+      if (payment_id) order.kokoPaymentId = payment_id;
+
+      if (order.voucherCode) {
+        await markVoucherAsUsed(order.userId, order.voucherCode);
+      }
+
+      try {
+        const customer = await User.findById(order.userId);
+        const installment = (order.totalAmount / 3).toFixed(2);
+        const targetEmail = order.receiptEmail || customer?.email;
+        if (order.sendReceiptEmail && targetEmail) {
+          const receipt = paymentReceiptEmail(order, customer?.name || 'Customer');
+          await sendEmail(targetEmail, receipt.subject, receipt.html);
+          order.receiptEmailSentAt = new Date();
+        }
+        if (customer?.phone && isValidSLPhone(customer.phone)) {
+          await sendSms(
+            formatSLPhone(customer.phone),
+            `Payment successful via Koko Pay. You will be charged LKR ${installment} for 3 months.`
+          );
+        }
+      } catch (notifyErr) {
+        console.error('[KoKo] Post-payment notification failed:', notifyErr.message);
+      }
+    } else if (status === 'FAILED' || status === 'CANCELLED') {
+      order.paymentStatus = 'failed';
+    }
+
+    await order.save();
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('KoKo IPN Error:', error);
+    res.status(500).send('Server Error');
+  }
+};
+
+// @desc    Generate PayHere hash for POS orders
+// @route   POST /api/pos/payhere-hash
+// @access  Private/Cashier/Admin/Manager
+const generatePosPayHereHash = async (req, res, next) => {
+  try {
+    const { orderId, amount } = req.body;
+    if (!orderId || !amount) {
+      res.status(400);
+      return next(new Error('orderId and amount are required'));
+    }
+    const merchantId = process.env.PAYHERE_MERCHANT_ID;
+    const merchantSecret = process.env.PAYHERE_MERCHANT_SECRET;
+    const amountStr = parseFloat(amount).toFixed(2);
+    const currency = 'LKR';
+
+    const secretHash = crypto.createHash('md5').update(merchantSecret).digest('hex').toUpperCase();
+    const hash = crypto.createHash('md5').update(merchantId + orderId + amountStr + currency + secretHash).digest('hex').toUpperCase();
+
+    res.json({
+      merchant_id: merchantId,
+      order_id: orderId,
+      amount: amountStr,
+      currency,
+      hash,
+      sandbox: process.env.PAYHERE_SANDBOX === 'true',
+    });
+  } catch (error) { next(error); }
 };
 
 // @desc    Get orders for a store owner's store
@@ -667,9 +741,11 @@ module.exports = {
   getOrderById,
   updateOrderStatus,
   generatePayHereHash,
+  generatePosPayHereHash,
   requestPaymentOtp,
   verifyPaymentOtp,
   payHereNotify,
+  kokoNotify,
   getStoreOrders,
   cancelMyOrder,
 };

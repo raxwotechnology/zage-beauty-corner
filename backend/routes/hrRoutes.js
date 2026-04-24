@@ -7,7 +7,7 @@ const {
   startBreak, endBreak, getBreakHistory, getActiveBreak,
   createTarget, getTargets, getMyTargets, updateTargetProgress, payTargetBonus,
   getEmployeePerformance,
-  adminMarkAttendance, adminCreateLeave,
+  adminMarkAttendance, adminCreateLeave, deleteTarget
 } = require('../controllers/hrController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -45,6 +45,7 @@ router.get('/targets/me', getMyTargets);
 router.get('/targets', authorize('manager', 'admin'), getTargets);
 router.put('/targets/:id/progress', authorize('manager', 'admin'), updateTargetProgress);
 router.put('/targets/:id/pay-bonus', authorize('manager', 'admin'), payTargetBonus);
+router.delete('/targets/:id', authorize('manager', 'admin'), deleteTarget);
 
 // Performance
 router.get('/performance/:employeeId', authorize('manager', 'admin'), getEmployeePerformance);

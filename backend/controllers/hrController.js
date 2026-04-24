@@ -38,6 +38,19 @@ const notifyStoreManager = async ({ storeId, type, title, message, link, metadat
   });
 };
 
+// @desc    Delete target
+// @route   DELETE /api/hr/targets/:id
+const deleteTarget = async (req, res, next) => {
+  try {
+    const target = await EmployeeTarget.findById(req.params.id);
+    if (!target) { res.status(404); return next(new Error('Target not found')); }
+    await target.deleteOne();
+    res.json({ message: 'Target removed' });
+  } catch (error) { next(error); }
+};
+
+// =================== PERFORMANCE ===================
+
 // =================== ATTENDANCE ===================
 
 // @desc    Check in
@@ -128,10 +141,8 @@ const getAttendanceReport = async (req, res, next) => {
 
     if (storeId) {
       filter.storeId = storeId;
-    } else if (req.user.role === 'manager') {
-      const store = await Store.findOne({ managerId: req.user._id });
-      if (store) filter.storeId = store._id;
     }
+    // Note: Removed automatic storeId filtering for managers so they can view all employees' attendance.
 
     if (month && year) {
       const startDate = new Date(year, month - 1, 1);
@@ -225,14 +236,11 @@ const getStoreLeaves = async (req, res, next) => {
     const filter = {};
     if (req.query.storeId) {
       filter.storeId = req.query.storeId;
-    } else if (req.user.role === 'manager') {
-      const store = await Store.findOne({ managerId: req.user._id });
-      if (store) filter.storeId = store._id;
     }
     if (req.query.status) filter.status = req.query.status;
 
     const leaves = await Leave.find(filter)
-      .populate('employeeId', 'name email role')
+      .populate('employeeId', 'name email role employeeInfo')
       .sort({ createdAt: -1 });
     res.json(leaves);
   } catch (error) { next(error); }
@@ -267,6 +275,7 @@ const approveLeave = async (req, res, next) => {
       type: 'leave_update',
       title: 'Leave Approved ✅',
       message: `Your ${leave.leaveType} leave from ${leave.startDate.toLocaleDateString()} to ${leave.endDate.toLocaleDateString()} has been approved.`,
+      link: '/employee/leaves',
     });
 
     const meta = { leaveId: leave._id, storeId: leave.storeId, employeeId: leave.employeeId, status: leave.status, approvedBy: req.user._id };
@@ -312,6 +321,7 @@ const rejectLeave = async (req, res, next) => {
       type: 'leave_update',
       title: 'Leave Rejected ❌',
       message: `Your ${leave.leaveType} leave request was rejected. Reason: ${leave.rejectionReason}`,
+      link: '/employee/leaves',
     });
 
     const meta = { leaveId: leave._id, storeId: leave.storeId, employeeId: leave.employeeId, status: leave.status, approvedBy: req.user._id };
@@ -347,17 +357,14 @@ const rejectLeave = async (req, res, next) => {
 const getEmployees = async (req, res, next) => {
   try {
     const roles = ['cashier', 'deliveryGuy', 'stockEmployee'];
-    if (req.user.role === 'admin' && String(req.query.includeManagers || '').toLowerCase() === 'true') {
+    if (String(req.query.includeManagers || '').toLowerCase() === 'true' || req.user.role === 'manager' || req.user.role === 'admin') {
       roles.push('manager');
     }
     const filter = { role: { $in: roles } };
     if (req.query.storeId) filter.assignedStore = req.query.storeId;
 
-    // If manager, only show their store's employees
-    if (req.user.role === 'manager') {
-      const store = await Store.findOne({ managerId: req.user._id });
-      if (store) filter.assignedStore = store._id;
-    }
+    // By user request, managers should see all employees in the system, including themselves and other managers.
+    // So we do not apply any store-specific filtering here.
 
     const employees = await User.find(filter)
       .select('name email phone role assignedStore employeeInfo createdAt')
@@ -581,10 +588,8 @@ const getTargets = async (req, res, next) => {
     const { employeeId, month, year } = req.query;
     const filter = {};
 
-    if (req.user.role === 'manager') {
-      const store = await Store.findOne({ managerId: req.user._id });
-      if (store) filter.storeId = store._id;
-    }
+    // Managers and Admins can see all targets
+    // Removed storeId filter for managers so they can see targets across the platform
 
     if (employeeId) filter.employeeId = employeeId;
     if (month) filter.month = parseInt(month);
@@ -768,6 +773,17 @@ const adminMarkAttendance = async (req, res, next) => {
       if (notes) attendance.notes = notes;
       attendance.markedBy = req.user._id;
       await attendance.save();
+
+      const { sendNotification } = require('../utils/notificationService');
+      await sendNotification({
+        userId: employee._id,
+        userEmail: employee.email,
+        type: 'attendance',
+        title: 'Attendance Updated',
+        message: `Your attendance for ${targetDate.toLocaleDateString()} was updated to ${status || attendance.status}.`,
+        link: '/employee/attendance',
+      });
+
       return res.json(attendance);
     }
 
@@ -795,6 +811,16 @@ const adminMarkAttendance = async (req, res, next) => {
       status: status || 'present',
       notes: notes || `Marked by ${req.user.name}`,
       markedBy: req.user._id,
+    });
+
+    const { sendNotification } = require('../utils/notificationService');
+    await sendNotification({
+      userId: employee._id,
+      userEmail: employee.email,
+      type: 'attendance',
+      title: 'Attendance Marked',
+      message: `Your attendance for ${targetDate.toLocaleDateString()} was marked as ${status || 'present'}.`,
+      link: '/employee/attendance',
     });
 
     res.status(201).json(attendance);
@@ -830,6 +856,7 @@ const adminCreateLeave = async (req, res, next) => {
     });
 
     // Notify the employee
+    const { sendNotification } = require('../utils/notificationService');
     await sendNotification({
       userId: employee._id,
       userEmail: employee.email,
@@ -850,5 +877,5 @@ module.exports = {
   startBreak, endBreak, getBreakHistory, getActiveBreak,
   createTarget, getTargets, getMyTargets, updateTargetProgress, payTargetBonus,
   getEmployeePerformance,
-  adminMarkAttendance, adminCreateLeave,
+  adminMarkAttendance, adminCreateLeave, deleteTarget
 };

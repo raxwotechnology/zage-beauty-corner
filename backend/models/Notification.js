@@ -9,17 +9,6 @@ const notificationSchema = mongoose.Schema(
     },
     type: {
       type: String,
-      enum: [
-        'order_update',
-        'delivery_update',
-        'delivery_assignment',
-        'salary_credit',
-        'promotion',
-        'loyalty_points',
-        'leave_update',
-        'low_stock',
-        'system',
-      ],
       required: true,
     },
     title: {

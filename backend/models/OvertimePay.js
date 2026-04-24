@@ -32,7 +32,7 @@ const overtimePaySchema = mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'paid'],
+      enum: ['pending', 'paid', 'rejected'],
       default: 'pending',
     },
     paidAt: {

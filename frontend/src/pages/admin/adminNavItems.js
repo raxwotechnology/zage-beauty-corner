@@ -1,9 +1,12 @@
-import { LayoutDashboard, Users, Store, Tag, ShoppingBag, Monitor, Ticket, BarChart3, DollarSign, Wallet, Package, Gift, CreditCard, UserCog, RotateCcw, Barcode, TrendingUp, Brain, Clock } from 'lucide-react';
+import { LayoutDashboard, Users, Store, Tag, ShoppingBag, Monitor, Ticket, BarChart3, DollarSign, Wallet, Package, Gift, CreditCard, UserCog, RotateCcw, Barcode, TrendingUp, Brain, Clock, Target } from 'lucide-react';
 
 const adminNavItems = [
   { path: '/admin', label: 'Overview', icon: LayoutDashboard },
   { path: '/admin/users', label: 'Users', icon: Users },
   { path: '/admin/employees', label: 'Employees', icon: UserCog },
+  { path: '/admin/targets', label: 'Targets', icon: Target },
+  { path: '/admin/attendance', label: 'Attendance', icon: Clock },
+  { path: '/admin/leaves', label: 'Leaves', icon: Clock },
   { path: '/admin/stores', label: 'Stores', icon: Store },
   { path: '/admin/categories', label: 'Categories', icon: Tag },
   { path: '/admin/products', label: 'Products', icon: Package },

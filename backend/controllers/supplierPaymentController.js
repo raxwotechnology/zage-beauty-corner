@@ -84,6 +84,29 @@ const getSupplierSummary = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+// @desc    Get all supplier payments (for export)
+// @route   GET /api/supplier-payments/payments
+// @access  Private/Admin/Manager
+const getSupplierPayments = async (req, res, next) => {
+  try {
+    let storeId = await resolveStoreId(req);
+    const filter = { type: 'payment' };
+    if (storeId) {
+      filter.storeId = new mongoose.Types.ObjectId(storeId);
+    } else if (req.user.role !== 'admin') {
+      res.status(400);
+      return next(new Error('storeId is required'));
+    }
+
+    const payments = await SupplierPayment.find(filter)
+      .populate('supplierId', 'name')
+      .populate('createdBy', 'name')
+      .sort({ date: -1 });
+
+    res.json(payments);
+  } catch (error) { next(error); }
+};
+
 // @desc    Get ledger for a supplier
 // @route   GET /api/supplier-payments/:supplierId/ledger
 // @access  Private/Admin/Manager
@@ -148,7 +171,7 @@ const getSupplierLedger = async (req, res, next) => {
 const recordPayment = async (req, res, next) => {
   try {
     const { supplierId } = req.params;
-    const { amount, description, paymentMethod, date } = req.body;
+    const { amount, description, paymentMethod, date, chequeNumber, bankName, chequeDate, accountNumber } = req.body;
 
     if (!amount || amount <= 0) {
       res.status(400);
@@ -164,7 +187,7 @@ const recordPayment = async (req, res, next) => {
     if (!storeId) storeId = supplier.storeId;
     if (!storeId) { res.status(400); return next(new Error('storeId is required')); }
 
-    const payment = await SupplierPayment.create({
+    const paymentData = {
       supplierId,
       storeId,
       type: 'payment',
@@ -173,7 +196,16 @@ const recordPayment = async (req, res, next) => {
       paymentMethod: paymentMethod || 'cash',
       date: date || new Date(),
       createdBy: req.user._id,
-    });
+    };
+
+    if (paymentMethod === 'cheque') {
+      if (chequeNumber) paymentData.chequeNumber = chequeNumber;
+      if (bankName) paymentData.bankName = bankName;
+      if (chequeDate) paymentData.chequeDate = new Date(chequeDate);
+      if (accountNumber) paymentData.accountNumber = accountNumber;
+    }
+
+    const payment = await SupplierPayment.create(paymentData);
 
     const populated = await SupplierPayment.findById(payment._id)
       .populate('createdBy', 'name');
@@ -236,6 +268,7 @@ const recordPurchase = async (req, res, next) => {
 
 module.exports = {
   getSupplierSummary,
+  getSupplierPayments,
   getSupplierLedger,
   recordPayment,
   recordPurchase,

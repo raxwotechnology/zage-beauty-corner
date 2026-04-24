@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Calendar, Check, Clock, Download, X } from 'lucide-react';
+import { Calendar, Check, Clock, Download, X, FileText, FileSpreadsheet } from 'lucide-react';
 import { toast } from 'react-toastify';
 import API from '../../services/api';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 const statusColors = {
   pending: 'bg-amber-100 text-amber-700',
@@ -13,6 +16,8 @@ const LeaveRequestsPanel = ({ defaultFilter = 'pending' }) => {
   const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState(defaultFilter);
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [deptFilter, setDeptFilter] = useState('');
 
   const fetchLeaves = async () => {
     try {
@@ -49,29 +54,54 @@ const LeaveRequestsPanel = ({ defaultFilter = 'pending' }) => {
     }
   };
 
-  const filtered = useMemo(
-    () => (filter === 'all' ? leaves : leaves.filter((l) => l.status === filter)),
-    [filter, leaves]
-  );
+  const filtered = useMemo(() => {
+    return leaves.filter((l) => {
+      const matchStatus = filter === 'all' || l.status === filter;
+      const matchRole = roleFilter === 'all' || l.employeeId?.role === roleFilter;
+      const matchDept = !deptFilter || (l.employeeId?.employeeInfo?.department || '').toLowerCase().includes(deptFilter.toLowerCase());
+      return matchStatus && matchRole && matchDept;
+    });
+  }, [filter, roleFilter, deptFilter, leaves]);
 
-  const exportCsv = () => {
-    const header = ['Employee', 'Role', 'Type', 'Start', 'End', 'Days', 'Status', 'Reason'].join(',');
-    const rows = leaves.map((l) => ([
+  const exportExcel = () => {
+    const data = filtered.map((l) => ({
+      Employee: l.employeeId?.name || '',
+      Role: l.employeeId?.role || '',
+      Department: l.employeeId?.employeeInfo?.department || '—',
+      Type: l.leaveType || l.type || '',
+      Start: new Date(l.startDate).toLocaleDateString(),
+      End: new Date(l.endDate).toLocaleDateString(),
+      Days: l.totalDays || 0,
+      Status: l.status || '',
+      Reason: l.reason || '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Leaves');
+    XLSX.writeFile(wb, 'Leave_Records.xlsx');
+    toast.success('Excel downloaded');
+  };
+
+  const exportPdf = () => {
+    const doc = new jsPDF();
+    doc.text('Leave Records', 14, 15);
+    const tableData = filtered.map((l) => [
       l.employeeId?.name || '',
       l.employeeId?.role || '',
+      l.employeeId?.employeeInfo?.department || '—',
       l.leaveType || '',
       new Date(l.startDate).toLocaleDateString(),
       new Date(l.endDate).toLocaleDateString(),
       l.totalDays || 0,
       l.status || '',
-      `"${String(l.reason || '').replaceAll('"', '""')}"`,
-    ].join(',')));
-    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'leave_requests.csv';
-    a.click();
-    toast.success('Report downloaded');
+    ]);
+    doc.autoTable({
+      head: [['Employee', 'Role', 'Dept', 'Type', 'Start', 'End', 'Days', 'Status']],
+      body: tableData,
+      startY: 20,
+    });
+    doc.save('Leave_Records.pdf');
+    toast.success('PDF downloaded');
   };
 
   if (loading) {
@@ -89,23 +119,45 @@ const LeaveRequestsPanel = ({ defaultFilter = 'pending' }) => {
           <h2 className="text-xl font-bold text-dark-navy mb-1">📅 Leave Requests</h2>
           <p className="text-muted-text text-sm">{leaves.filter((l) => l.status === 'pending').length} pending requests</p>
         </div>
-        <button onClick={exportCsv} className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
-          <Download size={16} /> Export CSV
-        </button>
+        <div className="flex gap-2">
+          <button onClick={exportExcel} className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors">
+            <FileSpreadsheet size={16} /> Excel
+          </button>
+          <button onClick={exportPdf} className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors">
+            <FileText size={16} /> PDF
+          </button>
+        </div>
       </div>
 
-      <div className="flex gap-2 mb-6 flex-wrap">
-        {['all', 'pending', 'approved', 'rejected'].map((s) => (
-          <button
-            key={s}
-            onClick={() => setFilter(s)}
-            className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors ${
-              filter === s ? 'bg-primary-green text-white' : 'bg-gray-100 text-muted-text hover:bg-gray-200'
-            }`}
-          >
-            {s.charAt(0).toUpperCase() + s.slice(1)} ({s === 'all' ? leaves.length : leaves.filter((l) => l.status === s).length})
-          </button>
-        ))}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div>
+          <label className="block text-xs text-muted-text mb-1">Status Filter</label>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)} className="w-full border border-card-border rounded-xl py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-green bg-white">
+            <option value="all">All Status ({leaves.length})</option>
+            <option value="pending">Pending ({leaves.filter((l) => l.status === 'pending').length})</option>
+            <option value="approved">Approved ({leaves.filter((l) => l.status === 'approved').length})</option>
+            <option value="rejected">Rejected ({leaves.filter((l) => l.status === 'rejected').length})</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-muted-text mb-1">Role/Category Filter</label>
+          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="w-full border border-card-border rounded-xl py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-green bg-white">
+            <option value="all">All Roles</option>
+            <option value="cashier">Cashier</option>
+            <option value="deliveryGuy">Delivery Rider</option>
+            <option value="stockEmployee">Stock Employee</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-muted-text mb-1">Department Search</label>
+          <input
+            type="text"
+            placeholder="Search by department..."
+            value={deptFilter}
+            onChange={(e) => setDeptFilter(e.target.value)}
+            className="w-full border border-card-border rounded-xl py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-green bg-white"
+          />
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -124,7 +176,7 @@ const LeaveRequestsPanel = ({ defaultFilter = 'pending' }) => {
                   </div>
                   <div>
                     <h3 className="font-semibold text-dark-navy text-sm">{leave.employeeId?.name || 'Unknown'}</h3>
-                    <p className="text-xs text-muted-text">{leave.employeeId?.role || '—'} • {leave.leaveType} leave</p>
+                    <p className="text-xs text-muted-text">{leave.employeeId?.role || '—'} • {leave.employeeId?.employeeInfo?.department ? `Dept: ${leave.employeeId.employeeInfo.department}` : 'No Dept'} • {leave.leaveType} leave</p>
                   </div>
                 </div>
 

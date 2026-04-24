@@ -116,6 +116,16 @@ const createOvertimeRecord = async (req, res, next) => {
       .populate('employeeId', 'name email role')
       .populate('createdBy', 'name');
 
+    // Notify employee about new OT
+    const { sendNotification } = require('../utils/notificationService');
+    await sendNotification({
+      userId: employeeId,
+      type: 'ot_created',
+      title: 'New Overtime Record',
+      message: `New overtime record added for ${new Date(date).toLocaleDateString()}, Amount: Rs.${totalAmount.toLocaleString()}`,
+      link: '/employee/overtime',
+    });
+
     res.status(201).json(populated);
   } catch (error) { next(error); }
 };
@@ -138,6 +148,48 @@ const markOvertimePaid = async (req, res, next) => {
     const populated = await OvertimePay.findById(record._id)
       .populate('employeeId', 'name email role')
       .populate('createdBy', 'name');
+
+    const { sendNotification } = require('../utils/notificationService');
+    await sendNotification({
+      userId: populated.employeeId._id,
+      userEmail: populated.employeeId.email,
+      type: 'ot_paid',
+      title: '🕒 Overtime Paid',
+      message: `Your overtime payment of Rs.${record.totalAmount.toLocaleString()} for ${record.hours} hours has been processed.`,
+      link: '/employee/overtime',
+    });
+
+    res.json(populated);
+  } catch (error) { next(error); }
+};
+
+// @desc    Reject OT record
+// @route   PUT /api/overtime/:id/reject
+// @access  Private/Admin
+const rejectOvertimeRecord = async (req, res, next) => {
+  try {
+    const record = await OvertimePay.findById(req.params.id);
+    if (!record) {
+      res.status(404);
+      return next(new Error('OT record not found'));
+    }
+
+    record.status = 'rejected';
+    await record.save();
+
+    const populated = await OvertimePay.findById(record._id)
+      .populate('employeeId', 'name email role')
+      .populate('createdBy', 'name');
+
+    const { sendNotification } = require('../utils/notificationService');
+    await sendNotification({
+      userId: populated.employeeId._id,
+      userEmail: populated.employeeId.email,
+      type: 'ot_rejected',
+      title: '❌ Overtime Rejected',
+      message: `Your overtime request for ${new Date(record.date).toLocaleDateString()} has been rejected.`,
+      link: '/employee/overtime',
+    });
 
     res.json(populated);
   } catch (error) { next(error); }
@@ -225,6 +277,7 @@ module.exports = {
   getOvertimeSummary,
   createOvertimeRecord,
   markOvertimePaid,
+  rejectOvertimeRecord,
   deleteOvertimeRecord,
   getEmployeeOTReport,
   getMyOvertime,

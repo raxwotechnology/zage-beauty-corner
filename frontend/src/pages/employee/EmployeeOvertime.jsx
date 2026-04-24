@@ -105,8 +105,8 @@ const EmployeeOvertime = () => {
                     <td className="py-3 px-4 text-right">Rs. {r.ratePerHour}</td>
                     <td className="py-3 px-4 text-right font-bold">Rs. {r.totalAmount.toLocaleString()}</td>
                     <td className="py-3 px-4 text-center">
-                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${r.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                        {r.status === 'paid' ? '✅ Paid' : '⏳ Pending'}
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${r.status === 'paid' ? 'bg-green-100 text-green-700' : r.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {r.status === 'paid' ? '✅ Paid' : r.status === 'rejected' ? '❌ Rejected' : '⏳ Pending'}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-xs text-muted-text">{r.description || '—'}</td>

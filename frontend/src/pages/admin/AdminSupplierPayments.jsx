@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Wallet, Search, ArrowLeft, CreditCard, TrendingUp, TrendingDown, DollarSign, Calendar, Download, ChevronDown, X } from 'lucide-react';
+import { Wallet, Search, ArrowLeft, CreditCard, TrendingUp, TrendingDown, DollarSign, Calendar, Download, ChevronDown, X, FileText, FileSpreadsheet } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import adminNavItems from './adminNavItems';
-import { getSupplierPaymentSummary, getSupplierLedger, recordSupplierPayment, recordSupplierPurchase } from '../../services/api';
+import { getSupplierPaymentSummary, getSupplierLedger, recordSupplierPayment, recordSupplierPurchase, getSupplierPayments } from '../../services/api';
 import { toast } from 'react-toastify';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 const AdminSupplierPayments = () => {
   const [suppliers, setSuppliers] = useState([]);
@@ -16,13 +19,15 @@ const AdminSupplierPayments = () => {
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('cash');
   const [payDescription, setPayDescription] = useState('');
+  const [chequeDetails, setChequeDetails] = useState({ chequeNumber: '', bankName: '', chequeDate: '', accountNumber: '' });
   const [paying, setPaying] = useState(false);
+  const [supplierToPay, setSupplierToPay] = useState(null);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [purchaseForm, setPurchaseForm] = useState({ totalCost: '', amountPaid: '', description: '' });
 
-  const fetchSummary = async () => {
+  const fetchSummary = async (isRefresh = false) => {
     try {
-      setLoading(true);
+      if (!isRefresh) setLoading(true);
       const res = await getSupplierPaymentSummary();
       setSuppliers(res.data);
     } catch (err) {
@@ -48,20 +53,30 @@ const AdminSupplierPayments = () => {
   };
 
   const handlePayment = async () => {
+    const targetSupplier = supplierToPay || selectedSupplier;
+    if (!targetSupplier) return;
     if (!payAmount || Number(payAmount) <= 0) return toast.error('Enter valid amount');
+    if (payMethod === 'cheque' && (!chequeDetails.chequeNumber || !chequeDetails.bankName || !chequeDetails.chequeDate)) {
+      return toast.error('Please fill in all required cheque details');
+    }
     setPaying(true);
     try {
-      await recordSupplierPayment(selectedSupplier._id, {
+      await recordSupplierPayment(targetSupplier._id, {
         amount: Number(payAmount),
         paymentMethod: payMethod,
         description: payDescription || undefined,
+        ...(payMethod === 'cheque' ? chequeDetails : {})
       });
       toast.success('Payment recorded successfully');
       setShowPayModal(false);
       setPayAmount('');
       setPayDescription('');
-      openLedger(selectedSupplier);
-      fetchSummary();
+      setChequeDetails({ chequeNumber: '', bankName: '', chequeDate: '', accountNumber: '' });
+      setSupplierToPay(null);
+      if (selectedSupplier) {
+        openLedger(selectedSupplier);
+      }
+      fetchSummary(true);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Payment failed');
     } finally {
@@ -112,6 +127,44 @@ const AdminSupplierPayments = () => {
     a.download = `supplier_ledger_${selectedSupplier?.name || 'export'}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportAllPaymentsExcel = async () => {
+    try {
+      const res = await getSupplierPayments();
+      const rows = res.data.map(p => ({
+        Supplier: p.supplierId?.name || 'Unknown',
+        Amount: p.amount.toFixed(2),
+        Date: new Date(p.date).toLocaleDateString(),
+        Status: p.paymentMethod || 'cash',
+        'Payment Method': p.paymentMethod || 'cash'
+      }));
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, sheet, 'Supplier Payments');
+      XLSX.writeFile(workbook, 'supplier_payments.xlsx');
+      toast.success('Excel exported');
+    } catch (e) { toast.error('Export failed'); }
+  };
+
+  const exportAllPaymentsPDF = async () => {
+    try {
+      const res = await getSupplierPayments();
+      const doc = new jsPDF();
+      doc.text('Supplier Payments Report', 14, 15);
+      doc.autoTable({
+        head: [['Supplier', 'Amount (LKR)', 'Date', 'Payment Method']],
+        body: res.data.map(p => [
+          p.supplierId?.name || 'Unknown',
+          p.amount.toFixed(2),
+          new Date(p.date).toLocaleDateString(),
+          p.paymentMethod || 'cash'
+        ]),
+        startY: 20
+      });
+      doc.save('supplier_payments.pdf');
+      toast.success('PDF exported');
+    } catch (e) { toast.error('Export failed'); }
   };
 
   const filtered = suppliers.filter((s) =>
@@ -241,6 +294,37 @@ const AdminSupplierPayments = () => {
                   ))}
                 </div>
               </div>
+              
+              {payMethod === 'cheque' && (
+                <div style={{ background: '#fdf2f8', padding: '1rem', borderRadius: '12px', marginBottom: '1rem', border: '1px solid #fbcfe8' }}>
+                  <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#d946a0' }}>Cheque Details</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#7b6f69', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Cheque No. *</label>
+                      <input type="text" value={chequeDetails.chequeNumber} onChange={(e) => setChequeDetails({...chequeDetails, chequeNumber: e.target.value})} placeholder="0000123"
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #eaded6', fontSize: '0.85rem', outline: 'none' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#7b6f69', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Bank Name *</label>
+                      <input type="text" value={chequeDetails.bankName} onChange={(e) => setChequeDetails({...chequeDetails, bankName: e.target.value})} placeholder="BOC"
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #eaded6', fontSize: '0.85rem', outline: 'none' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#7b6f69', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Cheque Date *</label>
+                      <input type="date" value={chequeDetails.chequeDate} onChange={(e) => setChequeDetails({...chequeDetails, chequeDate: e.target.value})}
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #eaded6', fontSize: '0.85rem', outline: 'none' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#7b6f69', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Account No.</label>
+                      <input type="text" value={chequeDetails.accountNumber} onChange={(e) => setChequeDetails({...chequeDetails, accountNumber: e.target.value})} placeholder="Optional"
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #eaded6', fontSize: '0.85rem', outline: 'none' }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div style={{ marginBottom: '1.25rem' }}>
                 <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#7b6f69', marginBottom: '0.35rem', textTransform: 'uppercase' }}>Note (optional)</label>
                 <input type="text" value={payDescription} onChange={(e) => setPayDescription(e.target.value)} placeholder="Payment reference..."
@@ -329,11 +413,21 @@ const AdminSupplierPayments = () => {
           ))}
         </div>
 
-        {/* Search */}
-        <div style={{ position: 'relative', marginBottom: '1rem' }}>
-          <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#7b6f69' }} />
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search suppliers..."
-            style={{ width: '100%', padding: '0.7rem 1rem 0.7rem 2.75rem', borderRadius: '12px', border: '1px solid #eaded6', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box' }} />
+        {/* Search & Export */}
+        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+            <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#7b6f69' }} />
+            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search suppliers..."
+              style={{ width: '100%', padding: '0.7rem 1rem 0.7rem 2.75rem', borderRadius: '12px', border: '1px solid #eaded6', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button onClick={exportAllPaymentsExcel} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#059669', color: 'white', padding: '0.7rem 1rem', borderRadius: '12px', border: 'none', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
+              <FileSpreadsheet size={16} /> Export Payments (Excel)
+            </button>
+            <button onClick={exportAllPaymentsPDF} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#dc2626', color: 'white', padding: '0.7rem 1rem', borderRadius: '12px', border: 'none', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
+              <FileText size={16} /> Export Payments (PDF)
+            </button>
+          </div>
         </div>
 
         {/* Supplier Table */}
@@ -367,7 +461,7 @@ const AdminSupplierPayments = () => {
                         </span>
                       </td>
                       <td style={{ padding: '0.75rem 1rem' }}>
-                        <button onClick={(e) => { e.stopPropagation(); setSelectedSupplier(s); setShowPayModal(true); }}
+                        <button onClick={(e) => { e.stopPropagation(); setSupplierToPay(s); setShowPayModal(true); }}
                           style={{ padding: '0.35rem 0.75rem', borderRadius: '8px', border: 'none', background: '#fdf2f8', color: '#d946a0', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>
                           Pay
                         </button>
@@ -379,6 +473,77 @@ const AdminSupplierPayments = () => {
             </div>
           )}
         </div>
+
+        {/* Payment Modal for Summary View */}
+        {showPayModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+            <div style={{ background: 'white', borderRadius: '20px', width: '100%', maxWidth: '420px', padding: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Record Payment</h3>
+                <button onClick={() => { setShowPayModal(false); setSupplierToPay(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7b6f69' }}><X size={20} /></button>
+              </div>
+              <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: '#7b6f69' }}>
+                Payment to <strong>{(supplierToPay || selectedSupplier)?.name}</strong> · Balance: <strong style={{ color: '#dc2626' }}>LKR {((supplierToPay || ledger)?.balanceDue || 0).toLocaleString()}</strong>
+              </p>
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#7b6f69', marginBottom: '0.35rem', textTransform: 'uppercase' }}>Amount (LKR)</label>
+                <input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0.00"
+                  style={{ width: '100%', padding: '0.7rem 1rem', borderRadius: '10px', border: '1px solid #eaded6', fontSize: '1.1rem', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#7b6f69', marginBottom: '0.35rem', textTransform: 'uppercase' }}>Payment Method</label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  {['cash', 'bank_transfer', 'cheque'].map((m) => (
+                    <button key={m} onClick={() => setPayMethod(m)}
+                      style={{ flex: 1, padding: '0.5rem', borderRadius: '8px', border: `1px solid ${payMethod === m ? '#d946a0' : '#eaded6'}`, background: payMethod === m ? '#fdf2f8' : 'white', color: payMethod === m ? '#d946a0' : '#7b6f69', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize' }}>
+                      {m.replace('_', ' ')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              
+              {payMethod === 'cheque' && (
+                <div style={{ background: '#fdf2f8', padding: '1rem', borderRadius: '12px', marginBottom: '1rem', border: '1px solid #fbcfe8' }}>
+                  <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#d946a0' }}>Cheque Details</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#7b6f69', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Cheque No. *</label>
+                      <input type="text" value={chequeDetails.chequeNumber} onChange={(e) => setChequeDetails({...chequeDetails, chequeNumber: e.target.value})} placeholder="0000123"
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #eaded6', fontSize: '0.85rem', outline: 'none' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#7b6f69', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Bank Name *</label>
+                      <input type="text" value={chequeDetails.bankName} onChange={(e) => setChequeDetails({...chequeDetails, bankName: e.target.value})} placeholder="BOC"
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #eaded6', fontSize: '0.85rem', outline: 'none' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#7b6f69', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Cheque Date *</label>
+                      <input type="date" value={chequeDetails.chequeDate} onChange={(e) => setChequeDetails({...chequeDetails, chequeDate: e.target.value})}
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #eaded6', fontSize: '0.85rem', outline: 'none' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#7b6f69', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Account No.</label>
+                      <input type="text" value={chequeDetails.accountNumber} onChange={(e) => setChequeDetails({...chequeDetails, accountNumber: e.target.value})} placeholder="Optional"
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #eaded6', fontSize: '0.85rem', outline: 'none' }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#7b6f69', marginBottom: '0.35rem', textTransform: 'uppercase' }}>Note (optional)</label>
+                <input type="text" value={payDescription} onChange={(e) => setPayDescription(e.target.value)} placeholder="Payment reference..."
+                  style={{ width: '100%', padding: '0.6rem 1rem', borderRadius: '10px', border: '1px solid #eaded6', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              <button onClick={handlePayment} disabled={paying}
+                style={{ width: '100%', padding: '0.75rem', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, #d946a0, #c026d3)', color: 'white', fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer', opacity: paying ? 0.7 : 1 }}>
+                {paying ? 'Processing...' : `Pay LKR ${Number(payAmount || 0).toLocaleString()}`}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );

@@ -39,6 +39,10 @@ const supplierPaymentSchema = mongoose.Schema(
       enum: ['cash', 'bank_transfer', 'cheque', 'other'],
       default: 'cash',
     },
+    chequeNumber: { type: String, trim: true },
+    bankName: { type: String, trim: true },
+    chequeDate: { type: Date },
+    accountNumber: { type: String, trim: true },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

@@ -24,7 +24,7 @@ import {
   Phone,
   Smartphone,
 } from 'lucide-react';
-import { getPosProducts, getProductByBarcode, posCheckout, getPosOrders, applyVoucher, getSettings, getActivePosSession, startPosSession, endPosSession } from '../../services/api';
+import { getPosProducts, getProductByBarcode, posCheckout, getPosOrders, applyVoucher, getSettings, getActivePosSession, startPosSession, endPosSession, getPosPayHereHash } from '../../services/api';
 import usePosStore from '../../store/posStore';
 import useAuthStore from '../../store/authStore';
 import useSettingsStore from '../../store/settingsStore';
@@ -240,19 +240,26 @@ const POSScreen = () => {
     }
   };
 
-  // Checkout
-  const handleCheckout = async () => {
+  // Checkout handler - for cash, card, koko
+  const handleCheckout = async (overrideMethod) => {
+    const method = overrideMethod || pos.paymentMethod;
     if (pos.cart.length === 0) {
       toast.warning('Cart is empty');
       return;
     }
 
-    if (pos.paymentMethod === 'cash') {
+    if (method === 'cash') {
       const tendered = parseFloat(pos.tenderedAmount);
       if (isNaN(tendered) || tendered < pos.getGrandTotal()) {
         toast.error('Tendered amount must be at least the total amount');
         return;
       }
+    }
+
+    // PayHere: checkout first, then submit to payment gateway
+    if (method === 'payhere') {
+      await handlePosPayHere();
+      return;
     }
 
     try {
@@ -265,8 +272,8 @@ const POSScreen = () => {
           quantity: item.quantity,
           price: item.price,
         })),
-        paymentMethod: pos.paymentMethod,
-        tenderedAmount: pos.paymentMethod === 'cash' ? parseFloat(pos.tenderedAmount) : undefined,
+        paymentMethod: method,
+        tenderedAmount: method === 'cash' ? parseFloat(pos.tenderedAmount) : undefined,
         discount: pos.discount,
         discountType: pos.discountType,
         couponCode: pos.coupon?.code || undefined,
@@ -292,6 +299,79 @@ const POSScreen = () => {
     } catch (err) {
       toast.error(err.response?.data?.message || 'Checkout failed');
     } finally {
+      setCheckingOut(false);
+    }
+  };
+
+  // PayHere POS flow: create order record, get hash, redirect
+  const handlePosPayHere = async () => {
+    try {
+      setCheckingOut(true);
+      // 1. Create the POS order as payhere method
+      const { data: order } = await posCheckout({
+        items: pos.cart.map((item) => ({
+          productId: item.productId,
+          name: item.name,
+          image: item.image,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+        paymentMethod: 'payhere',
+        discount: pos.discount,
+        discountType: pos.discountType,
+        couponCode: pos.coupon?.code || undefined,
+        customerName: pos.customerName || undefined,
+        customerPhone: pos.customerPhone || undefined,
+        sendSmsReceipt: pos.sendSmsReceipt,
+        sendReceiptEmail: pos.sendReceiptEmail,
+        receiptEmail: pos.receiptEmail || undefined,
+        printReceipt: pos.printReceipt,
+      });
+
+      // 2. Get PayHere hash for this POS order
+      const { data: payData } = await getPosPayHereHash({ orderId: order._id, amount: order.totalAmount });
+
+      // 3. Submit to PayHere
+      const FRONTEND = 'https://beauty.zage.lk';
+      const BACKEND = 'https://beautycorner.zage.lk';
+      const form = document.createElement('form');
+      const isSandbox = payData.sandbox;
+      form.method = 'POST';
+      form.action = isSandbox
+        ? 'https://sandbox.payhere.lk/pay/checkout'
+        : 'https://www.payhere.lk/pay/checkout';
+
+      const fields = {
+        merchant_id: payData.merchant_id,
+        return_url: `${FRONTEND}/pos`,
+        cancel_url: `${FRONTEND}/pos`,
+        notify_url: `${BACKEND}/api/orders/payhere-notify`,
+        order_id: payData.order_id,
+        items: order.items?.map(i => i.name).join(', ') || 'POS Sale',
+        amount: payData.amount,
+        currency: payData.currency,
+        hash: payData.hash,
+        first_name: user?.name?.split(' ')[0] || 'Walk-in',
+        last_name: user?.name?.split(' ').slice(1).join(' ') || 'Customer',
+        email: order.receiptEmail || user?.email || 'noreply@zage.lk',
+        phone: order.customerPhone || user?.phone || '0000000000',
+        address: 'Walk-in Store',
+        city: 'Colombo',
+        country: 'Sri Lanka',
+      };
+
+      Object.entries(fields).forEach(([key, val]) => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = val;
+        form.appendChild(input);
+      });
+
+      document.body.appendChild(form);
+      form.submit();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'PayHere checkout failed');
       setCheckingOut(false);
     }
   };
@@ -707,6 +787,15 @@ const POSScreen = () => {
                 >
                   <Smartphone size={20} />
                   Koko
+                </button>
+                <button
+                  className={`pos-payment-btn ${pos.paymentMethod === 'payhere' ? 'active' : ''}`}
+                  onClick={() => pos.setPaymentMethod('payhere')}
+                  title="PayHere - Online Payment"
+                  style={{ background: pos.paymentMethod === 'payhere' ? '#6d28d9' : undefined, color: pos.paymentMethod === 'payhere' ? '#fff' : undefined }}
+                >
+                  <CreditCard size={20} />
+                  PayHere
                 </button>
               </div>
 
