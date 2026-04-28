@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Plus, Edit2, Trash2, Search, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Plus, Edit2, Trash2, Search, X, ChevronDown, ChevronUp, Package } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import { getAdminProducts, getCategories, getStores, createProduct, updateProduct, deleteProduct } from '../../services/api';
 import { toast } from 'react-toastify';
@@ -26,6 +26,7 @@ const AdminProducts = () => {
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [expandedProduct, setExpandedProduct] = useState(null);
 
   const fetchData = async () => {
     try {
@@ -227,26 +228,93 @@ const AdminProducts = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-card-border">
-                {filtered.map((product) => (
-                  <tr key={product._id}>
-                    <td className="px-6 py-3.5">
-                      <div className="font-medium text-dark-navy">{product.name}</div>
-                      <div className="text-xs text-muted-text">{product.categoryId?.name || '-'}</div>
-                    </td>
-                    <td className="px-6 py-3.5 text-muted-text">{product.storeId?.name || '-'}</td>
-                    <td className="px-6 py-3.5">Rs. {Number(product.price || 0).toFixed(2)}</td>
-                    <td className="px-6 py-3.5">{product.stock}</td>
-                    <td className="px-6 py-3.5">
-                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${product.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>{product.status}</span>
-                    </td>
-                    <td className="px-6 py-3.5 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => openEdit(product)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-500"><Edit2 size={16} /></button>
-                        <button onClick={() => handleDelete(product._id)} className="p-2 rounded-lg hover:bg-red-50 text-red-500"><Trash2 size={16} /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((product) => {
+                  const isExpanded = expandedProduct === product._id;
+                  return (
+                    <React.Fragment key={product._id}>
+                      <tr>
+                        <td className="px-6 py-3.5">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setExpandedProduct(isExpanded ? null : product._id)}
+                              className="p-1 rounded hover:bg-gray-100 text-gray-400"
+                              title="Show price rows"
+                            >
+                              {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            </button>
+                            <div>
+                              <div className="font-medium text-dark-navy">{product.name}</div>
+                              <div className="text-xs text-muted-text">{product.categoryId?.name || '-'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-3.5 text-muted-text">{product.storeId?.name || '-'}</td>
+                        <td className="px-6 py-3.5">Rs. {Number(product.price || 0).toFixed(2)}</td>
+                        <td className="px-6 py-3.5">
+                          <span className="font-semibold">{product.stock}</span>
+                          {product.priceRows?.length > 0 && (
+                            <span className="ml-1 text-xs text-indigo-500">({product.priceRows.length} rows)</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-3.5">
+                          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${product.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>{product.status}</span>
+                        </td>
+                        <td className="px-6 py-3.5 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button onClick={() => openEdit(product)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-500"><Edit2 size={16} /></button>
+                            <button onClick={() => handleDelete(product._id)} className="p-2 rounded-lg hover:bg-red-50 text-red-500"><Trash2 size={16} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                      {/* Price Rows Expansion */}
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={6} className="px-8 pb-4 pt-0 bg-indigo-50/50">
+                            <div className="rounded-xl border border-indigo-100 bg-white p-4">
+                              <p className="text-xs font-bold text-indigo-700 mb-3 flex items-center gap-1"><Package size={12} /> Stock Price Rows — {product.name}</p>
+                              {!product.priceRows || product.priceRows.length === 0 ? (
+                                <p className="text-xs text-gray-400 italic">No price rows yet. Stock will be tracked by price row when received via GRN.</p>
+                              ) : (
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="text-left text-gray-400 border-b border-gray-100">
+                                      <th className="pb-2 pr-4 font-medium">#</th>
+                                      <th className="pb-2 pr-4 font-medium">Cost Price</th>
+                                      <th className="pb-2 pr-4 font-medium">Qty in Stock</th>
+                                      <th className="pb-2 pr-4 font-medium">Last Received</th>
+                                      <th className="pb-2 font-medium">Total Value</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {product.priceRows.map((row, idx) => (
+                                      <tr key={row._id || idx} className="border-b border-gray-50 hover:bg-indigo-50/30">
+                                        <td className="py-1.5 pr-4 text-gray-400">{idx + 1}</td>
+                                        <td className="py-1.5 pr-4 font-semibold text-dark-navy">Rs. {Number(row.costPrice).toFixed(2)}</td>
+                                        <td className="py-1.5 pr-4">
+                                          <span className={`px-2 py-0.5 rounded-full font-bold ${row.qty > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>{row.qty}</span>
+                                        </td>
+                                        <td className="py-1.5 pr-4 text-gray-500">{row.receivedAt ? new Date(row.receivedAt).toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'}) : '-'}</td>
+                                        <td className="py-1.5 font-medium text-indigo-700">Rs. {(Number(row.costPrice) * Number(row.qty)).toFixed(2)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr className="border-t border-gray-200">
+                                      <td colSpan={2} className="pt-2 text-gray-500 font-medium">Total Stock Value</td>
+                                      <td className="pt-2 font-bold text-dark-navy">{product.priceRows.reduce((s,r) => s + Number(r.qty||0), 0)}</td>
+                                      <td />
+                                      <td className="pt-2 font-bold text-indigo-700">Rs. {product.priceRows.reduce((s,r) => s + Number(r.costPrice||0)*Number(r.qty||0), 0).toFixed(2)}</td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

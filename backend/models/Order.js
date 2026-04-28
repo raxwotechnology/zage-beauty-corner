@@ -183,6 +183,25 @@ const orderSchema = mongoose.Schema(
     completedAt: {
       type: Date,
     },
+    // Credit sale tracking
+    isCredit: {
+      type: Boolean,
+      default: false,
+    },
+    amountPaid: {
+      type: Number,
+      default: 0,
+    },
+    creditBalance: {
+      type: Number,
+      default: 0,
+    },
+    creditPaidAt: {
+      type: Date,
+    },
+    creditNote: {
+      type: String,
+    },
   },
   {
     timestamps: true,

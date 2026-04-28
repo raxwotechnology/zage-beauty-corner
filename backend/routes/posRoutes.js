@@ -10,6 +10,8 @@ const {
   startSession,
   endSession,
   getCashierSalesReport,
+  getCreditOrders,
+  settleCreditOrder,
 } = require('../controllers/posController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -25,5 +27,7 @@ router.get('/session/active', getActiveSession);
 router.post('/session/start', startSession);
 router.post('/session/end', endSession);
 router.get('/cashier-report', getCashierSalesReport);
+router.get('/credit-orders', getCreditOrders);
+router.put('/credit-orders/:id/settle', settleCreditOrder);
 
 module.exports = router;

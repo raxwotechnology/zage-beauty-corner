@@ -8,6 +8,7 @@ const {
   recordPurchase,
   updateTransaction,
   deleteTransaction,
+  updateChequeStatus,
 } = require('../controllers/supplierPaymentController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -19,6 +20,7 @@ router.get('/:supplierId/ledger', authorize('admin', 'manager'), getSupplierLedg
 router.post('/:supplierId/pay', authorize('admin', 'manager'), recordPayment);
 router.post('/:supplierId/purchase', authorize('admin', 'manager'), recordPurchase);
 router.put('/transaction/:id', authorize('admin', 'manager'), updateTransaction);
+router.put('/cheque-status/:id', authorize('admin', 'manager'), updateChequeStatus);
 router.delete('/transaction/:id', authorize('admin'), deleteTransaction);
 
 module.exports = router;

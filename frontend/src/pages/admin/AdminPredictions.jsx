@@ -62,7 +62,7 @@ const AdminPredictions = () => {
 
   return (
     <DashboardLayout navItems={navItems} title="Admin Panel">
-      <div style={{ maxWidth: '1100px' }}>
+      <div style={{ width: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>

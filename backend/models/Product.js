@@ -1,5 +1,11 @@
 const mongoose = require('mongoose');
 
+const priceRowSchema = mongoose.Schema({
+  costPrice: { type: Number, required: true },
+  qty: { type: Number, required: true, default: 0 },
+  receivedAt: { type: Date, default: Date.now },
+}, { _id: true });
+
 const variantSchema = mongoose.Schema({
   name: { type: String, required: true }, // e.g., '500g', '1L'
   price: { type: Number, required: true },
@@ -139,6 +145,7 @@ const productSchema = mongoose.Schema(
       type: Number,
       default: 0,
     },
+    priceRows: [priceRowSchema],
   },
   {
     timestamps: true,

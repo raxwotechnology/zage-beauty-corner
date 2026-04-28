@@ -24,7 +24,7 @@ import {
   Phone,
   Smartphone,
 } from 'lucide-react';
-import { getPosProducts, getProductByBarcode, posCheckout, getPosOrders, applyVoucher, getSettings, getActivePosSession, startPosSession, endPosSession, getPosPayHereHash } from '../../services/api';
+import { getPosProducts, getProductByBarcode, posCheckout, getPosOrders, applyVoucher, getSettings, getActivePosSession, startPosSession, endPosSession, getPosPayHereHash, redeemPoints, getMyLoyaltyPoints, getCreditOrders, settleCreditOrder } from '../../services/api';
 import usePosStore from '../../store/posStore';
 import useAuthStore from '../../store/authStore';
 import useSettingsStore from '../../store/settingsStore';
@@ -65,6 +65,17 @@ const POSScreen = () => {
     opening: { 5000: 0, 1000: 0, 500: 0, 100: 0, 50: 0, 20: 0 },
     closing: { 5000: 0, 1000: 0, 500: 0, 100: 0, 50: 0, 20: 0 },
   });
+  const [customerPoints, setCustomerPoints] = useState(0);
+  const [pointsInput, setPointsInput] = useState('');
+  const [showLoyalty, setShowLoyalty] = useState(false);
+  const [loadingPoints, setLoadingPoints] = useState(false);
+  const [isCredit, setIsCredit] = useState(false);
+  const [creditAmountPaid, setCreditAmountPaid] = useState('');
+  const [creditNote, setCreditNote] = useState('');
+  const [showCreditPanel, setShowCreditPanel] = useState(false);
+  const [creditOrders, setCreditOrders] = useState([]);
+  const [creditLoading, setCreditLoading] = useState(false);
+  const [settleAmount, setSettleAmount] = useState({});
 
   const searchRef = useRef(null);
   const searchTimeoutRef = useRef(null);
@@ -242,13 +253,14 @@ const POSScreen = () => {
 
   // Checkout handler - for cash, card, koko
   const handleCheckout = async (overrideMethod) => {
-    const method = overrideMethod || pos.paymentMethod;
+    // If called via onClick, the first arg is the event object. Ignore it.
+    const method = (typeof overrideMethod === 'string') ? overrideMethod : pos.paymentMethod;
     if (pos.cart.length === 0) {
       toast.warning('Cart is empty');
       return;
     }
 
-    if (method === 'cash') {
+    if (method === 'cash' && !isCredit) {
       const tendered = parseFloat(pos.tenderedAmount);
       if (isNaN(tendered) || tendered < pos.getGrandTotal()) {
         toast.error('Tendered amount must be at least the total amount');
@@ -277,6 +289,11 @@ const POSScreen = () => {
         discount: pos.discount,
         discountType: pos.discountType,
         couponCode: pos.coupon?.code || undefined,
+        loyaltyPointsRedeemed: pos.loyaltyPointsToRedeem || undefined,
+        loyaltyDiscount: pos.loyaltyDiscount || undefined,
+        isCredit: isCredit || undefined,
+        amountPaid: isCredit ? parseFloat(creditAmountPaid) || 0 : undefined,
+        creditNote: isCredit ? creditNote : undefined,
         customerName: pos.customerName || undefined,
         customerPhone: pos.customerPhone || undefined,
         sendSmsReceipt: pos.sendSmsReceipt,
@@ -290,8 +307,11 @@ const POSScreen = () => {
       if (data?.smsReceiptError) {
         toast.warning(`Sale completed, but SMS failed: ${data.smsReceiptError}`);
       } else {
-        toast.success('Sale completed! 🎉');
+        toast.success(isCredit ? 'Credit sale recorded! 📋' : 'Sale completed! 🎉');
       }
+      setIsCredit(false);
+      setCreditAmountPaid('');
+      setCreditNote('');
 
       if (pos.printReceipt) {
         setTimeout(() => window.print(), 350);
@@ -333,7 +353,7 @@ const POSScreen = () => {
 
       // 3. Submit to PayHere
       const FRONTEND = 'https://beauty.zage.lk';
-      const BACKEND = 'https://beautycorner.zage.lk';
+      const BACKEND = 'https://zagebeauty.zage.lk';
       const form = document.createElement('form');
       const isSandbox = payData.sandbox;
       form.method = 'POST';
@@ -417,11 +437,71 @@ const POSScreen = () => {
   const subtotal = pos.getSubtotal();
   const discountAmount = pos.getDiscountAmount();
   const couponDiscount = pos.getCouponDiscount();
+  const loyaltyDiscount = pos.loyaltyDiscount || 0;
   const totalDiscount = pos.getTotalDiscount();
   const taxPercent = (pos.taxRate * 100).toFixed(0);
   const tax = pos.getTax();
   const grandTotal = pos.getGrandTotal();
   const change = pos.getChange();
+
+  const fetchCustomerPoints = async () => {
+    try {
+      setLoadingPoints(true);
+      const { data } = await getMyLoyaltyPoints();
+      setCustomerPoints(data?.points || 0);
+    } catch {
+      setCustomerPoints(0);
+    } finally {
+      setLoadingPoints(false);
+    }
+  };
+
+  const pointValue = settings?.loyaltyPointValue || 1;
+
+  const handleApplyPoints = () => {
+    const pts = parseInt(pointsInput);
+    if (isNaN(pts) || pts < 10) { toast.error('Minimum 10 points'); return; }
+    if (pts > customerPoints) { toast.error('Insufficient points'); return; }
+    const discount = pts * pointValue;
+    pos.setLoyaltyRedemption(pts, discount);
+    toast.success(`${pts} points applied (Rs.${discount} discount)`);
+    setPointsInput('');
+  };
+
+  const fetchCreditOrders = async () => {
+    try {
+      setCreditLoading(true);
+      const { data } = await getCreditOrders({ status: 'pending' });
+      setCreditOrders(data || []);
+    } catch (err) {
+      toast.error('Failed to load credit orders');
+    } finally {
+      setCreditLoading(false);
+    }
+  };
+
+  const handleSettleCredit = async (orderId) => {
+    const amt = settleAmount[orderId];
+    if (!amt || Number(amt) <= 0) { toast.error('Enter a valid amount'); return; }
+    try {
+      await settleCreditOrder(orderId, { amount: Number(amt) });
+      toast.success('Payment recorded!');
+      setSettleAmount((p) => ({ ...p, [orderId]: '' }));
+      fetchCreditOrders();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to settle');
+    }
+  };
+
+  const handleSettleFull = async (orderId) => {
+    try {
+      await settleCreditOrder(orderId, {});
+      toast.success('Credit fully settled! ✅');
+      fetchCreditOrders();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to settle');
+    }
+  };
 
   return (
     <div className="pos-screen">
@@ -450,6 +530,10 @@ const POSScreen = () => {
           <button className="pos-topbar-btn" onClick={handleShiftSummary} title="Shift Summary">
             <TrendingUp size={18} />
             <span className="pos-topbar-btn-text">Shift</span>
+          </button>
+          <button className="pos-topbar-btn" onClick={() => { setShowCreditPanel(!showCreditPanel); if (!showCreditPanel) fetchCreditOrders(); }} title="Credit Sales" style={showCreditPanel ? {background:'#fef3c7',color:'#92400e'} : {}}>
+            📋
+            <span className="pos-topbar-btn-text">Credit</span>
           </button>
           <div className="pos-topbar-cashier">
             <div className="pos-topbar-avatar">
@@ -621,11 +705,12 @@ const POSScreen = () => {
 
           {/* Totals */}
           {pos.cart.length > 0 && (
-            <div className="pos-cart-totals">
-              <div className="pos-total-row">
-                <span>Subtotal</span>
-                <span>Rs. {subtotal.toFixed(2)}</span>
-              </div>
+            <div className="pos-cart-totals" style={{display:'flex', flexDirection:'column', maxHeight:'65vh'}}>
+              <div style={{overflowY:'auto', flex:1, paddingRight:'8px', marginBottom:'10px'}}>
+                <div className="pos-total-row">
+                  <span>Subtotal</span>
+                  <span>Rs. {subtotal.toFixed(2)}</span>
+                </div>
               {discountAmount > 0 && (
                 <div className="pos-total-row pos-discount-row">
                   <span>
@@ -659,10 +744,13 @@ const POSScreen = () => {
                 <span>Tax ({taxPercent}%)</span>
                 <span>Rs. {tax.toFixed(2)}</span>
               </div>
-              <div className="pos-total-row pos-grand-total">
-                <span>TOTAL</span>
-                <span>Rs. {grandTotal.toFixed(2)}</span>
-              </div>
+              {loyaltyDiscount > 0 && (
+                <div className="pos-total-row pos-discount-row">
+                  <span>🏆 Loyalty ({pos.loyaltyPointsToRedeem} pts)</span>
+                  <span>-Rs. {loyaltyDiscount.toFixed(2)}</span>
+                  <button className="pos-discount-clear" onClick={() => pos.clearLoyaltyRedemption()}><X size={12} /></button>
+                </div>
+              )}
 
               {/* Coupon Input */}
               <div style={{display:'flex', gap:'6px', marginBottom:'8px'}}>
@@ -696,6 +784,35 @@ const POSScreen = () => {
                 <Percent size={16} />
                 Apply Discount
               </button>
+
+              {/* Loyalty Points Redemption */}
+              <button
+                className="pos-apply-discount-btn"
+                onClick={() => { setShowLoyalty(!showLoyalty); if (!showLoyalty) fetchCustomerPoints(); }}
+                style={{marginTop:'4px', background: showLoyalty ? '#fef3c7' : undefined, color: showLoyalty ? '#92400e' : undefined}}
+              >
+                🏆 {pos.loyaltyPointsToRedeem > 0 ? `Points Applied: ${pos.loyaltyPointsToRedeem}` : 'Redeem Loyalty Points'}
+              </button>
+              {showLoyalty && (
+                <div style={{background:'#fffbeb', border:'1px solid #fde68a', borderRadius:'10px', padding:'10px', marginBottom:'6px'}}>
+                  <div style={{display:'flex', justifyContent:'space-between', marginBottom:'6px', fontSize:'12px'}}>
+                    <span style={{color:'#92400e', fontWeight:600}}>Available Points:</span>
+                    <span style={{fontWeight:700, color:'#d97706'}}>{loadingPoints ? '...' : customerPoints}</span>
+                  </div>
+                  {pos.loyaltyPointsToRedeem > 0 ? (
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                      <span style={{fontSize:'12px', color:'#065f46', fontWeight:600}}>✅ {pos.loyaltyPointsToRedeem} pts = Rs.{pos.loyaltyDiscount}</span>
+                      <button onClick={() => { pos.clearLoyaltyRedemption(); toast.info('Points cleared'); }} style={{fontSize:'11px', color:'#dc2626', cursor:'pointer', background:'none', border:'none', fontWeight:600}}>Remove</button>
+                    </div>
+                  ) : (
+                    <div style={{display:'flex', gap:'6px'}}>
+                      <input type="number" value={pointsInput} onChange={(e) => setPointsInput(e.target.value)} placeholder="Points to redeem" className="pos-input" style={{flex:1, fontSize:'12px'}} min="10" max={customerPoints} />
+                      <button className="pos-btn-green" onClick={handleApplyPoints} style={{padding:'6px 14px', fontSize:'12px'}}>Apply</button>
+                    </div>
+                  )}
+                  <p style={{fontSize:'10px', color:'#92400e', marginTop:'6px', marginBottom:0}}>1 point = Rs.{pointValue} discount. Min 10 points.</p>
+                </div>
+              )}
 
               {/* Customer Info Toggle */}
               <button
@@ -800,7 +917,7 @@ const POSScreen = () => {
               </div>
 
               {/* Cash tendered */}
-              {pos.paymentMethod === 'cash' && (
+              {pos.paymentMethod === 'cash' && !isCredit && (
                 <div className="pos-cash-section">
                   <label className="pos-cash-label">Amount Tendered</label>
                   <div className="pos-cash-input-wrapper">
@@ -824,18 +941,59 @@ const POSScreen = () => {
                 </div>
               )}
 
+              {/* Credit Sale Toggle */}
+              <label className={`pos-credit-toggle ${isCredit ? 'active' : ''}`}>
+                <input type="checkbox" checked={isCredit} onChange={(e) => setIsCredit(e.target.checked)} />
+                <span>📋 Credit Sale (Pay Later)</span>
+              </label>
+              {isCredit && (
+                <div className="pos-credit-fields">
+                  <label className="pos-credit-label">Amount Paid Now</label>
+                  <input
+                    type="number"
+                    className="pos-credit-input"
+                    value={creditAmountPaid}
+                    onChange={(e) => setCreditAmountPaid(e.target.value)}
+                    placeholder="0.00"
+                    min="0"
+                    max={grandTotal}
+                    step="0.01"
+                  />
+                  {creditAmountPaid && parseFloat(creditAmountPaid) < grandTotal && (
+                    <div className="pos-credit-pending">
+                      <span>Pending Balance</span>
+                      <span className="pos-credit-pending-amount">Rs. {(grandTotal - parseFloat(creditAmountPaid || 0)).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <input
+                    type="text"
+                    className="pos-credit-note-input"
+                    value={creditNote}
+                    onChange={(e) => setCreditNote(e.target.value)}
+                    placeholder="Note (e.g. customer name, phone)"
+                  />
+                </div>
+              )}
+            </div> {/* End of scrollable part */}
+
+              <div className="pos-total-row pos-grand-total">
+                <span>TOTAL</span>
+                <span>Rs. {grandTotal.toFixed(2)}</span>
+              </div>
+
               {/* Checkout Button */}
               <button
                 className="pos-checkout-btn"
-                onClick={handleCheckout}
+                onClick={() => handleCheckout()}
                 disabled={checkingOut || pos.cart.length === 0}
+                style={isCredit ? {background:'linear-gradient(135deg,#f59e0b,#d97706)'} : {}}
               >
                 {checkingOut ? (
                   <span className="pos-spinner-sm" />
                 ) : (
                   <>
                     <Receipt size={22} />
-                    CHECKOUT — Rs. {grandTotal.toFixed(2)}
+                    {isCredit ? `CREDIT SALE — Rs. ${grandTotal.toFixed(2)}` : `CHECKOUT — Rs. ${grandTotal.toFixed(2)}`}
                   </>
                 )}
               </button>
@@ -1125,6 +1283,68 @@ const POSScreen = () => {
                     </div>
                   </div>
                 </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credit Orders Panel */}
+      {showCreditPanel && (
+        <div className="pos-credit-overlay" onClick={() => setShowCreditPanel(false)}>
+          <div className="pos-credit-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="pos-credit-panel-header">
+              <div>
+                <h2>📋 Credit Orders</h2>
+                <p>{creditOrders.length} pending credit sales</p>
+              </div>
+              <button className="pos-scanner-close" onClick={() => setShowCreditPanel(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="pos-credit-panel-body">
+              {creditLoading ? (
+                <div style={{textAlign:'center',padding:'2.5rem'}}><div className="pos-spinner" /></div>
+              ) : creditOrders.length === 0 ? (
+                <div className="pos-credit-empty">
+                  <p>✅</p>
+                  <p>No pending credit orders</p>
+                </div>
+              ) : (
+                creditOrders.map((order) => (
+                  <div key={order._id} className="pos-credit-card">
+                    <div className="pos-credit-card-header">
+                      <div>
+                        <span className="pos-credit-invoice">{order.invoiceNumber}</span>
+                        <span className="pos-credit-date">{new Date(order.createdAt).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}</span>
+                      </div>
+                      <span className="pos-credit-badge">
+                        Pending: Rs. {Number(order.creditBalance || 0).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="pos-credit-card-info">
+                      <div><span>Customer:</span> <strong>{order.customerName || order.customerPhone || 'Walk-in'}</strong></div>
+                      <div><span>Total:</span> <strong>Rs. {Number(order.totalAmount).toFixed(2)}</strong></div>
+                      <div><span>Paid:</span> <strong style={{color:'#4ade80'}}>Rs. {Number(order.amountPaid || 0).toFixed(2)}</strong></div>
+                    </div>
+                    {order.creditNote && <p className="pos-credit-card-note">Note: {order.creditNote}</p>}
+                    <div className="pos-credit-card-actions">
+                      <input
+                        type="number"
+                        className="pos-credit-settle-input"
+                        placeholder="Amount"
+                        value={settleAmount[order._id] || ''}
+                        onChange={(e) => setSettleAmount((p) => ({...p, [order._id]: e.target.value}))}
+                      />
+                      <button className="pos-credit-btn pos-credit-btn-partial" onClick={() => handleSettleCredit(order._id)}>
+                        Pay Partial
+                      </button>
+                      <button className="pos-credit-btn pos-credit-btn-full" onClick={() => handleSettleFull(order._id)}>
+                        Pay Full
+                      </button>
+                    </div>
+                  </div>
+                ))
               )}
             </div>
           </div>

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Ticket, Plus, Edit2, Trash2, X, Search, Copy, Check, FileText } from 'lucide-react';
+import { Ticket, Plus, Edit2, Trash2, X, Search, Copy, Check, FileText, Printer } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import API from '../../services/api';
 import { toast } from 'react-toastify';
 import { adminNavGroups as navItems } from './adminNavItems';
+import useSettingsStore from '../../store/settingsStore';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -21,6 +22,50 @@ const AdminVouchers = () => {
   const [form, setForm] = useState(emptyForm);
   const [search, setSearch] = useState('');
   const [copiedId, setCopiedId] = useState(null);
+  const [printQty, setPrintQty] = useState({});
+  const settings = useSettingsStore((s) => s.settings);
+
+  const printVoucher = (v) => {
+    const siteName = settings?.shopName || 'Zage Fashion Corner';
+    const logoUrl = settings?.logoUrl || settings?.logo || '';
+    const qty = printQty[v._id] || 1;
+    const discountText = v.type === 'percentage' ? `${v.value}% OFF` : `Rs. ${v.value} OFF`;
+    const expiryText = v.expiresAt ? new Date(v.expiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'No Expiry';
+
+    const singleVoucher = `
+      <div style="width:380px;border:2px dashed #d946a0;border-radius:20px;padding:28px;margin:15px auto;text-align:center;background:linear-gradient(135deg,#fdf2f8,#fff5f7,#ffffff);position:relative;overflow:hidden;page-break-inside:avoid">
+        <div style="position:absolute;top:-30px;right:-30px;width:100px;height:100px;background:#d946a0;opacity:0.08;border-radius:50%"></div>
+        <div style="position:absolute;bottom:-20px;left:-20px;width:80px;height:80px;background:#c026d3;opacity:0.08;border-radius:50%"></div>
+        ${logoUrl ? `<img src="${logoUrl}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;margin:0 auto 8px;display:block" onerror="this.style.display='none'" />` : ''}
+        <h2 style="margin:0 0 4px;font-size:16px;color:#1f1f1f;font-family:'Segoe UI',sans-serif">${siteName}</h2>
+        <p style="margin:0 0 12px;font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:2px">Discount Voucher</p>
+        <div style="background:linear-gradient(135deg,#d946a0,#c026d3);color:white;border-radius:14px;padding:16px 20px;margin:0 0 14px">
+          <p style="margin:0;font-size:28px;font-weight:900;letter-spacing:1px">${discountText}</p>
+        </div>
+        <div style="background:#f9fafb;border:1px dashed #d946a0;border-radius:10px;padding:10px;margin:0 0 12px">
+          <p style="margin:0 0 2px;font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:1px">Voucher Code</p>
+          <p style="margin:0;font-size:22px;font-weight:900;color:#d946a0;font-family:monospace;letter-spacing:4px">${v.code}</p>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:#6b7280;margin-bottom:8px;padding:0 8px">
+          <span>Min Order: Rs. ${v.minOrderAmount || 0}</span>
+          <span>Expires: ${expiryText}</span>
+        </div>
+        ${v.description ? `<p style="margin:0 0 8px;font-size:11px;color:#7b6f69;font-style:italic">${v.description}</p>` : ''}
+        <p style="margin:0;font-size:9px;color:#d1d5db">Present this voucher at checkout · ${siteName}</p>
+      </div>`;
+
+    const allVouchers = Array(qty).fill(singleVoucher).join('');
+
+    const html = `<!DOCTYPE html><html><head><title>Voucher - ${v.code}</title>
+      <style>body{font-family:'Segoe UI',sans-serif;margin:0;padding:20px;background:#fff}
+      @media print{body{padding:10px}@page{margin:10mm}}</style>
+      </head><body>${allVouchers}</body></html>`;
+
+    const win = window.open('', '_blank', 'width=500,height=700');
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => win.print(), 400);
+  };
 
   useEffect(() => { fetchVouchers(); }, []);
 
@@ -225,8 +270,22 @@ const AdminVouchers = () => {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button onClick={() => openEdit(v)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors"><Edit2 size={16} /></button>
-                  <button onClick={() => handleDelete(v._id)} className="p-2 rounded-lg hover:bg-red-50 text-red-500 transition-colors"><Trash2 size={16} /></button>
+                  <div className="flex items-center gap-1 border border-card-border rounded-xl px-2 py-1">
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={printQty[v._id] || 1}
+                      onChange={(e) => setPrintQty((prev) => ({ ...prev, [v._id]: Math.max(1, Number(e.target.value)) }))}
+                      className="w-10 text-center text-xs border-none outline-none bg-transparent"
+                      title="Print qty"
+                    />
+                    <button onClick={() => printVoucher(v)} className="p-1.5 rounded-lg hover:bg-fuchsia-50 text-fuchsia-600 transition-colors" title="Print Voucher">
+                      <Printer size={16} />
+                    </button>
+                  </div>
+                  <button onClick={() => openEdit(v)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Edit"><Edit2 size={16} /></button>
+                  <button onClick={() => handleDelete(v._id)} className="p-2 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Delete"><Trash2 size={16} /></button>
                 </div>
               </div>
 

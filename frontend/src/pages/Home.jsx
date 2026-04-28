@@ -104,23 +104,7 @@ const Home = () => {
           >
             <div className="relative">
               <div className="w-80 h-80 md:w-96 md:h-96 rounded-full bg-gradient-to-br from-rose-100 to-stone-200 flex items-center justify-center shadow-2xl overflow-hidden border-4 border-white">
-                {settings?.logoUrl || settings?.logo ? (
-                  <img
-                    src={settings.logoUrl || settings.logo}
-                    alt={settings?.shopName || 'Brand Logo'}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.target.style.display = 'none';
-                      e.target.nextSibling.style.display = 'flex';
-                    }}
-                  />
-                ) : null}
-                <span
-                  className="text-8xl"
-                  style={{ display: (settings?.logoUrl || settings?.logo) ? 'none' : 'block' }}
-                >
-                  💄
-                </span>
+                <span className="text-8xl">💄</span>
               </div>
               {/* Floating badges */}
               {heroProducts[0] && (
@@ -245,7 +229,7 @@ const Home = () => {
               </Link>
             </motion.div>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {deals.slice(0, 4).map((product, i) => (
+              {deals.slice(0, 8).map((product, i) => (
                 <motion.div
                   key={product._id}
                   initial="hidden" whileInView="visible" viewport={{ once: true }}
@@ -275,8 +259,8 @@ const Home = () => {
               View All <ArrowRight size={16} />
             </Link>
           </motion.div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {featured.slice(0, 8).map((product, i) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            {featured.slice(0, 15).map((product, i) => (
               <motion.div
                 key={product._id}
                 initial="hidden" whileInView="visible" viewport={{ once: true }}

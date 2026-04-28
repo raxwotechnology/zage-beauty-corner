@@ -7,8 +7,8 @@ import useAuthStore from '../../store/authStore';
 import { toast } from 'react-toastify';
 
 // Dynamic nav items based on role
-import adminNavItems from '../admin/adminNavItems';
-import managerNavItems from '../storeOwner/managerNavItems';
+import { adminNavGroups } from '../admin/adminNavItems';
+import { managerNavGroups } from '../storeOwner/managerNavItems';
 import { getEmployeeNavGroups } from '../employee/employeeNav';
 
 const BarcodeGenerator = () => {
@@ -69,8 +69,6 @@ const BarcodeGenerator = () => {
       });
       setGenerated(true);
       toast.success(`${quantity} barcode labels generated & logged!`);
-
-      // Render barcodes after state update
       setTimeout(() => renderBarcodes(), 100);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to generate barcodes');
@@ -108,10 +106,10 @@ const BarcodeGenerator = () => {
     window.print();
   };
 
-  // Determine nav items based on user role
+  // Determine nav items based on user role — use GROUPS for DashboardLayout
   const getNavItems = () => {
-    if (user?.role === 'admin') return adminNavItems;
-    if (user?.role === 'manager') return managerNavItems;
+    if (user?.role === 'admin') return adminNavGroups;
+    if (user?.role === 'manager') return managerNavGroups || [];
     return getEmployeeNavGroups(user?.role);
   };
 

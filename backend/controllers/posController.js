@@ -216,6 +216,11 @@ const posCheckout = async (req, res, next) => {
       sendReceiptEmail = false,
       receiptEmail,
       printReceipt = true,
+      isCredit = false,
+      amountPaid = 0,
+      creditNote = '',
+      loyaltyPointsRedeemed,
+      loyaltyDiscount,
     } = req.body;
     let normalizedCustomerPhone = customerPhone ? formatSLPhone(customerPhone) : undefined;
     if (customerPhone && !isValidSLPhone(customerPhone)) {
@@ -356,7 +361,7 @@ const posCheckout = async (req, res, next) => {
 
     // Change calculation for cash
     let changeGiven = 0;
-    if (paymentMethod === 'cash' && tenderedAmount) {
+    if (paymentMethod === 'cash' && tenderedAmount && !isCredit) {
       changeGiven = parseFloat((tenderedAmount - totalAmount).toFixed(2));
       if (changeGiven < 0) {
         res.status(400);
@@ -375,6 +380,9 @@ const posCheckout = async (req, res, next) => {
     });
     const invoiceNumber = `INV-${dateStr}-${String(todayPosCount + 1).padStart(4, '0')}`;
 
+    // Credit sale handling
+    const creditBalance = isCredit ? Math.max(0, totalAmount - Number(amountPaid || 0)) : 0;
+
     // Create the POS order
     const order = await Order.create({
       userId: req.user._id,
@@ -384,14 +392,14 @@ const posCheckout = async (req, res, next) => {
       tax,
       deliveryFee: 0,
       paymentMethod: paymentMethod || 'cash',
-      paymentStatus: 'completed',
+      paymentStatus: isCredit && creditBalance > 0 ? 'pending' : 'completed',
       orderStatus: 'completed',
       isPosOrder: true,
       invoiceNumber,
       cashierId: req.user._id,
       posSessionId: activeSession._id,
-      tenderedAmount: tenderedAmount || totalAmount,
-      changeGiven,
+      tenderedAmount: isCredit ? Number(amountPaid || 0) : (tenderedAmount || totalAmount),
+      changeGiven: isCredit ? 0 : changeGiven,
       customerName: customerName || undefined,
       customerPhone: normalizedCustomerPhone || undefined,
       couponCode: appliedCoupon || undefined,
@@ -399,6 +407,12 @@ const posCheckout = async (req, res, next) => {
       receiptEmail: receiptEmail || undefined,
       sendSmsReceipt: !!sendSmsReceipt,
       printReceipt: !!printReceipt,
+      isCredit: !!isCredit,
+      amountPaid: isCredit ? Number(amountPaid || 0) : totalAmount,
+      creditBalance,
+      creditNote: creditNote || undefined,
+      loyaltyPointsRedeemed: loyaltyPointsRedeemed || 0,
+      discountAmount: totalDiscount || 0,
     });
 
     // Deduct stock
@@ -651,6 +665,51 @@ const getCashierSalesReport = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+// @desc    Get credit orders (unpaid/partial)
+// @route   GET /api/pos/credit-orders
+// @access  Private/Cashier/Manager/Admin
+const getCreditOrders = async (req, res, next) => {
+  try {
+    const storeId = await resolveStoreId(req.user);
+    const filter = { isPosOrder: true, isCredit: true, storeId };
+    if (req.query.status === 'pending') {
+      filter.creditBalance = { $gt: 0 };
+    } else if (req.query.status === 'settled') {
+      filter.creditBalance = 0;
+    }
+    const orders = await Order.find(filter)
+      .sort({ createdAt: -1 })
+      .populate('cashierId', 'name')
+      .lean();
+    res.json(orders);
+  } catch (error) { next(error); }
+};
+
+// @desc    Settle credit order (mark remaining as paid)
+// @route   PUT /api/pos/credit-orders/:id/settle
+// @access  Private/Cashier/Manager/Admin
+const settleCreditOrder = async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) { res.status(404); return next(new Error('Order not found')); }
+    if (!order.isCredit) { res.status(400); return next(new Error('This is not a credit order')); }
+
+    const payAmount = Number(req.body.amount || order.creditBalance);
+    if (payAmount <= 0) { res.status(400); return next(new Error('Invalid payment amount')); }
+
+    order.amountPaid = Number(order.amountPaid || 0) + payAmount;
+    order.creditBalance = Math.max(0, Number(order.totalAmount) - Number(order.amountPaid));
+    if (order.creditBalance <= 0) {
+      order.creditBalance = 0;
+      order.paymentStatus = 'completed';
+      order.creditPaidAt = new Date();
+    }
+    if (req.body.note) order.creditNote = (order.creditNote || '') + ' | ' + req.body.note;
+    await order.save();
+    res.json(order);
+  } catch (error) { next(error); }
+};
+
 module.exports = {
   getPosProducts,
   getProductByBarcode,
@@ -661,4 +720,6 @@ module.exports = {
   startSession,
   endSession,
   getCashierSalesReport,
+  getCreditOrders,
+  settleCreditOrder,
 };

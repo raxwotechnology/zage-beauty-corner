@@ -14,6 +14,8 @@ const usePosStore = create((set, get) => ({
   receiptEmail: '',
   sendSmsReceipt: false,
   printReceipt: true,
+  loyaltyPointsToRedeem: 0,
+  loyaltyDiscount: 0,
 
   addItem: (product) => {
     const { cart } = get();
@@ -103,6 +105,14 @@ const usePosStore = create((set, get) => ({
     });
   },
 
+  setLoyaltyRedemption: (points, discount) => {
+    set({ loyaltyPointsToRedeem: points || 0, loyaltyDiscount: discount || 0 });
+  },
+
+  clearLoyaltyRedemption: () => {
+    set({ loyaltyPointsToRedeem: 0, loyaltyDiscount: 0 });
+  },
+
   clearCart: () => {
     set({
       cart: [],
@@ -117,6 +127,8 @@ const usePosStore = create((set, get) => ({
       receiptEmail: '',
       sendSmsReceipt: false,
       printReceipt: true,
+      loyaltyPointsToRedeem: 0,
+      loyaltyDiscount: 0,
     });
   },
 
@@ -147,7 +159,7 @@ const usePosStore = create((set, get) => ({
   },
 
   getTotalDiscount: () => {
-    return get().getDiscountAmount() + get().getCouponDiscount();
+    return get().getDiscountAmount() + get().getCouponDiscount() + (get().loyaltyDiscount || 0);
   },
 
   getTax: () => {

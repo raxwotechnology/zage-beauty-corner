@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
-import { Wallet, Search, ArrowLeft, CreditCard, TrendingUp, TrendingDown, DollarSign, Calendar, Download, ChevronDown, X, FileText, FileSpreadsheet, Edit2, Trash2, Save } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Wallet, Search, ArrowLeft, CreditCard, TrendingUp, TrendingDown, DollarSign, Calendar, Download, ChevronDown, X, FileText, FileSpreadsheet, Edit2, Trash2, Save, CheckCircle, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import { adminNavGroups as navItems } from './adminNavItems';
-import { getSupplierPaymentSummary, getSupplierLedger, recordSupplierPayment, recordSupplierPurchase, getSupplierPayments, updateSupplierTransaction, deleteSupplierTransaction } from '../../services/api';
+import { getSupplierPaymentSummary, getSupplierLedger, recordSupplierPayment, recordSupplierPurchase, getSupplierPayments, updateSupplierTransaction, deleteSupplierTransaction, updateChequeStatus } from '../../services/api';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -27,7 +27,7 @@ const AdminSupplierPayments = () => {
   const [editTx, setEditTx] = useState(null); // transaction being edited
   const [editForm, setEditForm] = useState({ amount: '', description: '', date: '' });
 
-  const fetchSummary = async (isRefresh = false) => {
+  const fetchSummary = useCallback(async (isRefresh = false) => {
     try {
       if (!isRefresh) setLoading(true);
       const res = await getSupplierPaymentSummary();
@@ -37,9 +37,25 @@ const AdminSupplierPayments = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchSummary(); }, []);
+  // Fetch on mount
+  useEffect(() => { fetchSummary(); }, [fetchSummary]);
+
+  // Auto-refresh when user switches back to this tab
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') fetchSummary(true);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [fetchSummary]);
+
+  // Poll every 30 seconds to catch GRN updates from other pages
+  useEffect(() => {
+    const timer = setInterval(() => fetchSummary(true), 30000);
+    return () => clearInterval(timer);
+  }, [fetchSummary]);
 
   const openLedger = async (supplier) => {
     setSelectedSupplier(supplier);
@@ -213,7 +229,7 @@ const AdminSupplierPayments = () => {
   if (selectedSupplier) {
     return (
       <DashboardLayout navItems={navItems} title="Admin Panel">
-        <div style={{ maxWidth: '1100px' }}>
+        <div>
           {/* Back Button */}
           <button onClick={() => { setSelectedSupplier(null); setLedger(null); }}
             style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'none', border: 'none', color: '#d946a0', fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer', marginBottom: '1rem', padding: 0 }}>
@@ -326,6 +342,64 @@ const AdminSupplierPayments = () => {
               </div>
             )}
           </div>
+
+          {/* Cheque Tracking Section */}
+          {ledger?.chequeSummary && ledger.chequeSummary.totalCheques > 0 && (
+            <div style={{ background: 'white', borderRadius: '16px', border: '1px solid #eaded6', overflow: 'hidden', marginTop: '1.5rem' }}>
+              <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #eaded6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#1f1f1f' }}>🏦 Cheque Tracking</h3>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <span style={{ padding: '4px 12px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, background: '#d1fae5', color: '#065f46' }}>✅ Paid: {ledger.chequeSummary.paid}</span>
+                  <span style={{ padding: '4px 12px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, background: '#fef3c7', color: '#92400e' }}>⏳ Pending: {ledger.chequeSummary.pending}</span>
+                  <span style={{ padding: '4px 12px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, background: '#fef2f2', color: '#991b1b' }}>❌ Bounced: {ledger.chequeSummary.bounced}</span>
+                </div>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr style={{ background: '#fdf2f8' }}>
+                      {['Cheque No', 'Bank', 'Cheque Date', 'Amount', 'Account', 'Status', 'Action'].map((h) => (
+                        <th key={h} style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: 700, color: '#7b6f69', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(ledger.chequeSummary.cheques || []).map((ch, ci) => (
+                      <tr key={ci} style={{ borderBottom: '1px solid #f5f0ec' }}>
+                        <td style={{ padding: '0.7rem 1rem', fontWeight: 600, color: '#1f1f1f' }}>{ch.chequeNumber}</td>
+                        <td style={{ padding: '0.7rem 1rem', color: '#7b6f69' }}>{ch.bankName}</td>
+                        <td style={{ padding: '0.7rem 1rem', color: '#7b6f69' }}>{ch.chequeDate ? new Date(ch.chequeDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                        <td style={{ padding: '0.7rem 1rem', fontWeight: 700, color: '#d946a0' }}>LKR {Number(ch.amount || 0).toLocaleString()}</td>
+                        <td style={{ padding: '0.7rem 1rem', color: '#7b6f69' }}>{ch.accountNumber || '—'}</td>
+                        <td style={{ padding: '0.7rem 1rem' }}>
+                          <span style={{ padding: '3px 10px', borderRadius: '8px', fontWeight: 700, fontSize: '0.72rem', background: ch.status === 'paid' ? '#d1fae5' : ch.status === 'bounced' ? '#fef2f2' : '#fef3c7', color: ch.status === 'paid' ? '#065f46' : ch.status === 'bounced' ? '#991b1b' : '#92400e' }}>
+                            {ch.status === 'paid' ? '✅ Paid' : ch.status === 'bounced' ? '❌ Bounced' : '⏳ Pending'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.7rem 1rem' }}>
+                          <select
+                            value={ch.status}
+                            onChange={async (e) => {
+                              try {
+                                await updateChequeStatus(ch.paymentId, { chequeStatus: e.target.value, status: e.target.value });
+                                toast.success('Cheque status updated');
+                                openLedger(selectedSupplier);
+                              } catch { toast.error('Failed to update cheque status'); }
+                            }}
+                            style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #eaded6', fontSize: '0.78rem', cursor: 'pointer' }}
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="paid">Paid</option>
+                            <option value="bounced">Bounced</option>
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Payment Modal */}
@@ -447,12 +521,20 @@ const AdminSupplierPayments = () => {
   // Summary View
   return (
     <DashboardLayout navItems={navItems} title="Admin Panel">
-      <div style={{ maxWidth: '1100px' }}>
+      <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
             <h1 style={{ margin: '0 0 0.25rem', fontSize: '1.5rem', fontWeight: 800, color: '#1f1f1f' }}>Supplier Payments</h1>
             <p style={{ margin: 0, color: '#7b6f69', fontSize: '0.85rem' }}>Track supplier balances, purchases, and payments</p>
           </div>
+          <button
+            onClick={() => fetchSummary(true)}
+            disabled={loading}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.6rem 1.2rem', borderRadius: '12px', border: '1px solid #eaded6', background: 'white', color: '#1f1f1f', fontWeight: 600, fontSize: '0.85rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}
+          >
+            <RefreshCw size={16} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
 
         {/* Summary Cards */}

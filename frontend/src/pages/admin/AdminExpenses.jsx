@@ -9,11 +9,11 @@ import { toast } from 'react-toastify';
 import { exportToCSV, exportToExcel, exportToPDF } from '../../utils/exportUtils';
 import { adminNavGroups as navItems } from './adminNavItems';
 
-const CATEGORIES = ['Marketing', 'Utilities', 'Water Bill', 'Electricity', 'Transport', 'Rent', 'Salaries', 'Supplies', 'Maintenance', 'Insurance', 'Internet & Phone', 'Equipment', 'Packaging', 'Cleaning', 'Security', 'Other'];
+const CATEGORIES = ['Employee Payments', 'Utilities', 'Water Bill', 'Electricity', 'Overtime', 'Rent', 'Salaries', 'Marketing', 'Transport', 'Supplies', 'Maintenance', 'Insurance', 'Internet & Phone', 'Equipment', 'Packaging', 'Cleaning', 'Security', 'Miscellaneous', 'Custom', 'Other'];
 
-const INCOME_SOURCES = ['Interest', 'Rent Income', 'Commission', 'Refund', 'Insurance Claim', 'Asset Sale', 'Sponsorship', 'Other'];
-const emptyExpenseForm = { title: '', category: 'Utilities', amount: '', date: new Date().toISOString().split('T')[0], status: 'Pending', notes: '' };
-const emptyIncomeForm = { title: '', source: 'Other', amount: '', date: new Date().toISOString().split('T')[0], notes: '' };
+const INCOME_SOURCES = ['Sales', 'Interest', 'Rent Income', 'Commission', 'Refund', 'Insurance Claim', 'Asset Sale', 'Sponsorship', 'Other Income', 'Custom', 'Other'];
+const emptyExpenseForm = { title: '', category: 'Utilities', customCategory: '', amount: '', date: new Date().toISOString().split('T')[0], status: 'Pending', notes: '' };
+const emptyIncomeForm = { title: '', source: 'Other', customSource: '', amount: '', date: new Date().toISOString().split('T')[0], notes: '' };
 
 const AdminExpenses = () => {
   const [expenses, setExpenses] = useState([]);

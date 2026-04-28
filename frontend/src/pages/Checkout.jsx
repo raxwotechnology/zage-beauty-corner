@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import useCartStore from '../store/cartStore';
 import useAuthStore from '../store/authStore';
 import useCurrencyStore from '../store/currencyStore';
+import useSettingsStore from '../store/settingsStore';
 import { applyVoucher, createOrder, getMyLoyaltyPoints, getPayHereHash, requestOrderPaymentOtp, verifyOrderPaymentOtp } from '../services/api';
 import { toast } from 'react-toastify';
 
@@ -30,12 +31,19 @@ const Checkout = () => {
   const [selectedVoucherCode, setSelectedVoucherCode] = useState('');
   const [voucherDiscount, setVoucherDiscount] = useState(0);
   const [applyingVoucher, setApplyingVoucher] = useState(false);
+  const [customerPoints, setCustomerPoints] = useState(0);
+  const [pointsInput, setPointsInput] = useState('');
+  const [loyaltyPointsToRedeem, setLoyaltyPointsToRedeem] = useState(0);
+  const [loyaltyDiscount, setLoyaltyDiscount] = useState(0);
+  const [showLoyalty, setShowLoyalty] = useState(false);
+  const siteSettings = useSettingsStore((s) => s.settings);
+  const pointValue = siteSettings?.loyaltyPointValue || 1;
 
   const subtotal = getSubtotal();
   const deliveryFee = subtotal > 50 ? 0 : 4.99;
   const tax = Math.round(subtotal * 0.08 * 100) / 100;
   const fullTotalBeforeDiscount = subtotal + deliveryFee + tax;
-  const total = Math.max(0, fullTotalBeforeDiscount - voucherDiscount);
+  const total = Math.max(0, fullTotalBeforeDiscount - voucherDiscount - loyaltyDiscount);
 
   // Pre-fill address from user profile
   useEffect(() => {
@@ -56,6 +64,7 @@ const Checkout = () => {
       if (!user) return;
       try {
         const { data } = await getMyLoyaltyPoints();
+        setCustomerPoints(data?.points || 0);
         const available = data?.availableVouchers || [];
         
         // Filter vouchers that are valid for the current cart
@@ -148,6 +157,8 @@ const Checkout = () => {
         deliveryFee,
         tax,
         voucherCode: selectedVoucherCode || undefined,
+        loyaltyPointsRedeemed: loyaltyPointsToRedeem || undefined,
+        loyaltyDiscount: loyaltyDiscount || undefined,
         sendReceiptEmail,
         receiptEmail: sendReceiptEmail ? (receiptEmail || user?.email || '') : undefined,
       };
@@ -242,7 +253,7 @@ const Checkout = () => {
 
   const initiatePayHere = (payData, order) => {
     const FRONTEND = 'https://beauty.zage.lk';
-    const BACKEND = 'https://beautycorner.zage.lk';
+    const BACKEND = 'https://zagebeauty.zage.lk';
     const payment = {
       sandbox: payData.sandbox,
       merchant_id: payData.merchant_id,
@@ -421,6 +432,50 @@ const Checkout = () => {
             )}
           </motion.div>
 
+          {/* Loyalty Points */}
+          <motion.div
+            className="bg-white border border-card-border rounded-2xl p-6"
+            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.15 }}
+          >
+            <h3 className="font-bold text-dark-navy mt-0 mb-4 flex items-center gap-2">
+              🏆 Redeem Loyalty Points
+            </h3>
+            {!user ? (
+              <p className="text-sm text-muted-text mb-0">Login to redeem your loyalty points.</p>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm text-muted-text">Available Points:</span>
+                  <span className="font-bold text-amber-600">{customerPoints}</span>
+                </div>
+                {loyaltyPointsToRedeem > 0 ? (
+                  <div className="flex items-center justify-between bg-amber-50 rounded-xl p-3 border border-amber-100">
+                    <span className="text-sm text-emerald-700 font-semibold">✅ {loyaltyPointsToRedeem} pts = Rs.{loyaltyDiscount.toFixed(2)} off</span>
+                    <button onClick={() => { setLoyaltyPointsToRedeem(0); setLoyaltyDiscount(0); setPointsInput(''); toast.info('Points removed'); }}
+                      className="text-xs text-red-600 font-semibold hover:underline bg-transparent border-none cursor-pointer">Remove</button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input type="number" value={pointsInput} onChange={(e) => setPointsInput(e.target.value)}
+                      placeholder="Points to redeem (min 10)" min="10" max={customerPoints}
+                      className="flex-1 border border-card-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary-green outline-none" />
+                    <button onClick={() => {
+                      const pts = parseInt(pointsInput);
+                      if (isNaN(pts) || pts < 10) { toast.error('Minimum 10 points'); return; }
+                      if (pts > customerPoints) { toast.error('Insufficient points'); return; }
+                      const disc = pts * pointValue;
+                      setLoyaltyPointsToRedeem(pts);
+                      setLoyaltyDiscount(disc);
+                      toast.success(`${pts} points applied (Rs.${disc} discount)`);
+                      setPointsInput('');
+                    }} className="bg-amber-500 hover:bg-amber-600 text-white font-semibold px-5 py-2.5 rounded-xl text-sm transition-colors">Apply</button>
+                  </div>
+                )}
+                <p className="text-xs text-muted-text mt-2 mb-0">1 point = Rs.{pointValue} discount. Minimum 10 points to redeem.</p>
+              </div>
+            )}
+          </motion.div>
+
           {/* Payment Method */}
           <motion.div
             className="bg-white border border-card-border rounded-2xl p-6"
@@ -523,6 +578,12 @@ const Checkout = () => {
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-text">Voucher Discount</span>
                   <span className="font-medium text-emerald-700">- {formatPrice(convertPrice(voucherDiscount))}</span>
+                </div>
+              )}
+              {loyaltyDiscount > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-text">🏆 Loyalty ({loyaltyPointsToRedeem} pts)</span>
+                  <span className="font-medium text-emerald-700">- {formatPrice(convertPrice(loyaltyDiscount))}</span>
                 </div>
               )}
             </div>

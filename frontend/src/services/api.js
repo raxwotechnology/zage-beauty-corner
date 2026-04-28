@@ -134,6 +134,8 @@ export const getPosOrderById = (id) => API.get(`/pos/orders/${id}`);
 export const getActivePosSession = () => API.get('/pos/session/active');
 export const startPosSession = (data) => API.post('/pos/session/start', data);
 export const endPosSession = (data) => API.post('/pos/session/end', data);
+export const getCreditOrders = (params) => API.get('/pos/credit-orders', { params });
+export const settleCreditOrder = (id, data) => API.put(`/pos/credit-orders/${id}/settle`, data);
 
 // Notifications
 export const getNotifications = (params) => API.get('/notifications', { params });
@@ -229,6 +231,7 @@ export const deleteSupplier = (id) => API.delete(`/suppliers/${id}`);
 
 export const getStockReceipts = (params) => API.get('/stock/receipts', { params });
 export const createStockReceipt = (data) => API.post('/stock/receipts', data);
+export const getReceiptByGRN = (grnNumber) => API.get(`/stock/receipts/grn/${encodeURIComponent(grnNumber)}`);
 export const getSupplierReturns = (params) => API.get('/stock/supplier-returns', { params });
 export const createSupplierReturn = (data) => API.post('/stock/supplier-returns', data);
 
@@ -254,6 +257,7 @@ export const recordSupplierPayment = (supplierId, data) => API.post(`/supplier-p
 export const recordSupplierPurchase = (supplierId, data) => API.post(`/supplier-payments/${supplierId}/purchase`, data);
 export const updateSupplierTransaction = (id, data) => API.put(`/supplier-payments/transaction/${id}`, data);
 export const deleteSupplierTransaction = (id) => API.delete(`/supplier-payments/transaction/${id}`);
+export const updateChequeStatus = (id, data) => API.put(`/supplier-payments/cheque-status/${id}`, data);
 
 // Sales Tracking
 export const getCashierSalesReport = (params) => API.get('/pos/cashier-report', { params });

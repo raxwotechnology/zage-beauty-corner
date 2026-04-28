@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Wallet, Search, ArrowLeft, CreditCard, TrendingUp, TrendingDown, DollarSign, Calendar, Download, ChevronDown, X, FileText, FileSpreadsheet } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Wallet, Search, ArrowLeft, CreditCard, TrendingUp, TrendingDown, DollarSign, Calendar, Download, ChevronDown, X, FileText, FileSpreadsheet, RefreshCw } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import { managerNavGroups as navItems } from './managerNavItems';
 import { getSupplierPaymentSummary, getSupplierLedger, recordSupplierPayment, recordSupplierPurchase, getSupplierPayments } from '../../services/api';
@@ -25,7 +25,7 @@ const ManagerSupplierPayments = () => {
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [purchaseForm, setPurchaseForm] = useState({ totalCost: '', amountPaid: '', description: '' });
 
-  const fetchSummary = async (isRefresh = false) => {
+  const fetchSummary = useCallback(async (isRefresh = false) => {
     try {
       if (!isRefresh) setLoading(true);
       const res = await getSupplierPaymentSummary();
@@ -35,9 +35,24 @@ const ManagerSupplierPayments = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchSummary(); }, []);
+  useEffect(() => { fetchSummary(); }, [fetchSummary]);
+
+  // Auto-refresh when user switches back to this tab
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') fetchSummary(true);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [fetchSummary]);
+
+  // Poll every 30 seconds
+  useEffect(() => {
+    const timer = setInterval(() => fetchSummary(true), 30000);
+    return () => clearInterval(timer);
+  }, [fetchSummary]);
 
   const openLedger = async (supplier) => {
     setSelectedSupplier(supplier);
@@ -392,6 +407,14 @@ const ManagerSupplierPayments = () => {
             <h1 style={{ margin: '0 0 0.25rem', fontSize: '1.5rem', fontWeight: 800, color: '#1f1f1f' }}>Supplier Payments</h1>
             <p style={{ margin: 0, color: '#7b6f69', fontSize: '0.85rem' }}>Track supplier balances, purchases, and payments</p>
           </div>
+          <button
+            onClick={() => fetchSummary(true)}
+            disabled={loading}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.6rem 1.2rem', borderRadius: '12px', border: '1px solid #eaded6', background: 'white', color: '#1f1f1f', fontWeight: 600, fontSize: '0.85rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}
+          >
+            <RefreshCw size={16} />
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
 
         {/* Summary Cards */}

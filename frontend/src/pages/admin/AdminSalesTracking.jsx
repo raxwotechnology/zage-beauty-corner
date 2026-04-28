@@ -46,7 +46,7 @@ const AdminSalesTracking = () => {
 
   return (
     <DashboardLayout navItems={navItems} title="Admin Panel">
-      <div style={{ maxWidth: '1100px' }}>
+      <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
             <h1 style={{ margin: '0 0 0.25rem', fontSize: '1.5rem', fontWeight: 800, color: '#1f1f1f' }}>Sales Tracking</h1>

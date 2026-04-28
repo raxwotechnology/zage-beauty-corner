@@ -198,7 +198,7 @@ const InvoiceModal = ({ isOpen, onClose, order, onNewSale }) => {
             </div>
 
             {/* Cash Details */}
-            {order.paymentMethod === 'cash' && (
+            {order.paymentMethod === 'cash' && !order.isCredit && (
               <div style={{ margin: '6px 0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px', color: '#555' }}>
                   <span>Amount Tendered:</span>
@@ -208,6 +208,25 @@ const InvoiceModal = ({ isOpen, onClose, order, onNewSale }) => {
                   <span>Change Due:</span>
                   <span>Rs. {(order.changeGiven || 0).toFixed(2)}</span>
                 </div>
+              </div>
+            )}
+
+            {/* Credit Details */}
+            {order.isCredit && (
+              <div style={{ margin: '6px 0', border: '1px solid #fde68a', background: '#fffbeb', padding: '6px', borderRadius: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px', color: '#92400e' }}>
+                  <span>Amount Paid:</span>
+                  <span style={{ fontWeight: 700 }}>Rs. {(order.amountPaid || 0).toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 700, color: '#dc2626' }}>
+                  <span>Balance Due:</span>
+                  <span>Rs. {(order.creditBalance || 0).toFixed(2)}</span>
+                </div>
+                {order.creditNote && (
+                  <p style={{ fontSize: '9px', color: '#b45309', margin: '4px 0 0', fontStyle: 'italic' }}>
+                    Note: {order.creditNote}
+                  </p>
+                )}
               </div>
             )}
 

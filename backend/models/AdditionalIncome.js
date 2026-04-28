@@ -11,6 +11,7 @@ const additionalIncomeSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Source is required'],
       enum: [
+        'Sales',
         'Interest',
         'Rent Income',
         'Commission',
@@ -18,8 +19,15 @@ const additionalIncomeSchema = new mongoose.Schema(
         'Insurance Claim',
         'Asset Sale',
         'Sponsorship',
+        'Other Income',
+        'Custom',
         'Other',
       ],
+    },
+    customSource: {
+      type: String,
+      trim: true,
+      default: '',
     },
     amount: {
       type: Number,

@@ -8,12 +8,9 @@ const resolveStoreId = async (req) => {
     const store = await Store.findOne({ managerId: req.user._id }).select('_id').lean();
     return store?._id || null;
   }
-  // Admin: use query/body storeId, or auto-detect first store
+  // Admin: use query/body storeId, or null (all stores)
   if (req.user.role === 'admin') {
-    const explicit = req.body?.storeId || req.query?.storeId;
-    if (explicit) return explicit;
-    const store = await Store.findOne({}).sort({ createdAt: 1 }).select('_id').lean();
-    return store?._id || null;
+    return req.body?.storeId || req.query?.storeId || null;
   }
   return req.body?.storeId || req.query?.storeId || null;
 };
@@ -30,7 +27,7 @@ const getSupplierSummary = async (req, res, next) => {
     let paymentMatchFilter = {};
     if (storeId) {
       supplierFilter = { storeId, status: 'active' };
-      paymentMatchFilter = { storeId: new mongoose.Types.ObjectId(storeId) };
+      paymentMatchFilter = { storeId: new mongoose.Types.ObjectId(String(storeId)) };
     } else if (req.user.role === 'admin') {
       // Show all suppliers regardless of store
       supplierFilter = { status: 'active' };
@@ -92,7 +89,7 @@ const getSupplierPayments = async (req, res, next) => {
     let storeId = await resolveStoreId(req);
     const filter = { type: 'payment' };
     if (storeId) {
-      filter.storeId = new mongoose.Types.ObjectId(storeId);
+      filter.storeId = new mongoose.Types.ObjectId(String(storeId));
     } else if (req.user.role !== 'admin') {
       res.status(400);
       return next(new Error('storeId is required'));
@@ -136,9 +133,33 @@ const getSupplierLedger = async (req, res, next) => {
       .populate('createdBy', 'name')
       .sort({ date: -1 });
 
+    // If date filter is applied, we need the opening balance from before startDate
+    let openingBalance = 0;
+    if (startDate) {
+      const beforeFilter = {
+        supplierId,
+        date: { $lt: new Date(startDate) }
+      };
+      if (filter.storeId) beforeFilter.storeId = filter.storeId;
+      
+      const beforeResults = await SupplierPayment.aggregate([
+        { $match: beforeFilter },
+        {
+          $group: {
+            _id: null,
+            purchases: { $sum: { $cond: [{ $eq: ['$type', 'purchase'] }, '$amount', 0] } },
+            payments: { $sum: { $cond: [{ $eq: ['$type', 'payment'] }, '$amount', 0] } }
+          }
+        }
+      ]);
+      if (beforeResults.length > 0) {
+        openingBalance = beforeResults[0].purchases - beforeResults[0].payments;
+      }
+    }
+
     // Calculate running balance
     const sorted = [...transactions].reverse();
-    let runningBalance = 0;
+    let runningBalance = openingBalance;
     const ledger = sorted.map((t) => {
       if (t.type === 'purchase') runningBalance += t.amount;
       else runningBalance -= t.amount;
@@ -155,12 +176,43 @@ const getSupplierLedger = async (req, res, next) => {
       .filter((t) => t.type === 'payment')
       .reduce((s, t) => s + t.amount, 0);
 
+    // Cheque summary
+    const chequePayments = transactions.filter((t) => t.type === 'payment' && t.paymentMethod === 'cheque');
+    let allCheques = [];
+    chequePayments.forEach((cp) => {
+      if (cp.cheques && cp.cheques.length > 0) {
+        cp.cheques.forEach((ch) => {
+          allCheques.push({ ...ch.toObject ? ch.toObject() : ch, paymentId: cp._id, date: cp.date });
+        });
+      } else if (cp.chequeNumber) {
+        allCheques.push({
+          chequeNumber: cp.chequeNumber,
+          bankName: cp.bankName,
+          chequeDate: cp.chequeDate,
+          amount: cp.amount,
+          accountNumber: cp.accountNumber,
+          status: cp.chequeStatus || 'pending',
+          paymentId: cp._id,
+          date: cp.date,
+        });
+      }
+    });
+
+    const chequeSummary = {
+      totalCheques: allCheques.length,
+      paid: allCheques.filter((c) => c.status === 'paid').length,
+      pending: allCheques.filter((c) => c.status === 'pending').length,
+      bounced: allCheques.filter((c) => c.status === 'bounced').length,
+      cheques: allCheques,
+    };
+
     res.json({
       supplier,
       transactions: ledger.reverse(),
       totalPurchased,
       totalPaid,
       balanceDue: totalPurchased - totalPaid,
+      chequeSummary,
     });
   } catch (error) { next(error); }
 };
@@ -171,20 +223,18 @@ const getSupplierLedger = async (req, res, next) => {
 const recordPayment = async (req, res, next) => {
   try {
     const { supplierId } = req.params;
-    const { amount, description, paymentMethod, date, chequeNumber, bankName, chequeDate, accountNumber } = req.body;
+    const { amount, description, paymentMethod, date, chequeNumber, bankName, chequeDate, accountNumber, cheques } = req.body;
 
     if (!amount || amount <= 0) {
       res.status(400);
       return next(new Error('Valid payment amount is required'));
     }
 
-    let storeId = await resolveStoreId(req);
-
     const supplier = await Supplier.findById(supplierId);
     if (!supplier) { res.status(404); return next(new Error('Supplier not found')); }
 
-    // Use supplier's storeId as fallback
-    if (!storeId) storeId = supplier.storeId;
+    // Use supplier's storeId as the primary source of truth for the ledger
+    const storeId = supplier.storeId || (await resolveStoreId(req));
     if (!storeId) { res.status(400); return next(new Error('storeId is required')); }
 
     const paymentData = {
@@ -199,10 +249,23 @@ const recordPayment = async (req, res, next) => {
     };
 
     if (paymentMethod === 'cheque') {
+      // Multi-cheque support
+      if (Array.isArray(cheques) && cheques.length > 0) {
+        paymentData.cheques = cheques.map((ch) => ({
+          chequeNumber: ch.chequeNumber,
+          bankName: ch.bankName,
+          chequeDate: ch.chequeDate ? new Date(ch.chequeDate) : new Date(),
+          amount: Number(ch.amount || 0),
+          accountNumber: ch.accountNumber || '',
+          status: ch.status || 'pending',
+        }));
+      }
+      // Single cheque (backward compat)
       if (chequeNumber) paymentData.chequeNumber = chequeNumber;
       if (bankName) paymentData.bankName = bankName;
       if (chequeDate) paymentData.chequeDate = new Date(chequeDate);
       if (accountNumber) paymentData.accountNumber = accountNumber;
+      paymentData.chequeStatus = 'pending';
     }
 
     const payment = await SupplierPayment.create(paymentData);
@@ -222,13 +285,11 @@ const recordPurchase = async (req, res, next) => {
     const { supplierId } = req.params;
     const { totalCost, amountPaid, description, referenceId } = req.body;
 
-    let storeId = await resolveStoreId(req);
-
     const supplier = await Supplier.findById(supplierId);
     if (!supplier) { res.status(404); return next(new Error('Supplier not found')); }
 
-    // Use supplier's storeId as fallback
-    if (!storeId) storeId = supplier.storeId;
+    // Use supplier's storeId as the primary source of truth for the ledger
+    const storeId = supplier.storeId || (await resolveStoreId(req));
     if (!storeId) { res.status(400); return next(new Error('storeId is required')); }
 
     // Record the purchase entry
@@ -298,6 +359,30 @@ const deleteTransaction = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+// @desc    Update cheque status (single or multi)
+// @route   PUT /api/supplier-payments/cheque-status/:id
+// @access  Private/Admin/Manager
+const updateChequeStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { chequeStatus, chequeIndex, status } = req.body;
+    const transaction = await SupplierPayment.findById(id);
+    if (!transaction) { res.status(404); return next(new Error('Transaction not found')); }
+
+    // Update specific cheque in multi-cheque array
+    if (chequeIndex !== undefined && transaction.cheques && transaction.cheques[chequeIndex]) {
+      transaction.cheques[chequeIndex].status = status || chequeStatus || 'pending';
+    } else {
+      // Update top-level cheque status
+      transaction.chequeStatus = chequeStatus || status || 'pending';
+    }
+
+    await transaction.save();
+    const populated = await SupplierPayment.findById(id).populate('createdBy', 'name');
+    res.json(populated);
+  } catch (error) { next(error); }
+};
+
 module.exports = {
   getSupplierSummary,
   getSupplierPayments,
@@ -306,4 +391,5 @@ module.exports = {
   recordPurchase,
   updateTransaction,
   deleteTransaction,
+  updateChequeStatus,
 };
